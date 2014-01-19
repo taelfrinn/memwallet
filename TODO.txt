@@ -1,0 +1,48 @@
+
+add received stealthcoins to JSON
+ -	keep in encrypted format?
+
+add scrypt engine to dwallet, extend JSON format, fix create screen
+
+fingerprint generation
+
+MINOR
+
+
+	electrum style password suggestifier- mn_encode from brainwallet
+
+	memwallet: send message to any pubkey(hex) select using a radio button
+	memwallet: javascript stealthcoins
+	memwallet: add stealth nonces to private serialization
+	add warning if RNG not seeded - alert?
+
+	send stealth coin
+		generate a secret nonce, and a ECIES message to the parent pubkey
+		convert to a pubkey using the secret nonce
+		print crypted secret message and the address to send to
+
+	receive stealth coin
+		input ECIES message containing the 32 bit nonce
+		unlock wallet
+		decrypt message and show address and WIF
+
+	timers to do the dwallet generation
+		timer with heartthrobbing mightbe best
+		callbacks as closures, with capture comments
+
+	scrypt
+		add "alg" to private json
+		use alg to modify method of initial entropy generation
+		support radio button for create tab
+
+MAJOR
+	refactor top down, adding only my stuff
+
+	update everything to latest version of cryptojs,
+		This may impact other codes, like scrypt and bitcoin key classes
+		reorganize this into a compressed/mnified crypto.js section
+		with the other 3rd party stuff also minified and shrunkdown
+
+	balance checking tab
+
+	spending transaction making tab
