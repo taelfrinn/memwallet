@@ -7486,6 +7486,9 @@ Bitcoin.dwallet = (function () {
 		this.m_parent_public = [];
 		this.m_chain_code = [];
 		this.m_last_error = "";
+
+		this.m_algorithm = "dwallet";
+		this.m_ecies_messages = {};
 	};
 
 	constructor.prototype.toJSONString = function()
@@ -7498,7 +7501,26 @@ Bitcoin.dwallet = (function () {
 			rets += "\t\"wallet_id\" : \"" + this.m_wallet_ndx + "\",\n";
 		}
 		rets += "\t\"parent_pubkey\" : \"" + Bitcoin.Base58.encode_check(this.m_parent_public) + "\",\n";
-		rets += "\t\"chain_code\" : \"" + Bitcoin.Base58.encode_check(this.m_chain_code) + "\"\n";
+		rets += "\t\"chain_code\" : \"" + Bitcoin.Base58.encode_check(this.m_chain_code) + "\",\n";
+		rets += "\t\"algorithm\" : \"" + this.m_algorithm + "\",\n";
+		rets += '\t"ecies_messages" : [';
+
+		var temp = [];
+		for(var i in this.m_ecies_messages)
+		{	if (this.m_ecies_messages.hasOwnProperty(i)) { temp.push(i); } }
+		for( var xi = 0; xi < temp.length ; ++ xi)
+		{
+			if( xi > 0)
+			{
+				rets += ',\n';
+			}
+			else
+			{
+				rets += '\n';
+			}
+			rets += '\t\t"' + temp[xi] + '"';
+		}
+		rets += '\n\t]\n';
 		rets += "}\n";
 		return rets;
 	};
@@ -7538,6 +7560,28 @@ Bitcoin.dwallet = (function () {
 			this.m_date = newparse["date"] || newparse.m_company_date;
 			this.m_wallet_ndx = newparse["wallet_id"];
 			this.m_fingerprint = newparse["fingerprint"];
+
+			if( newparse.algorithm == undefined )
+			{
+				this.m_algorithm = "dwallet";
+			}
+			else
+			{
+				this.m_algorithm = newparse.algorithm;
+			}
+
+			if( newparse.ecies_messages === undefined  )
+			{
+				this.m_ecies_messages = {};
+			}
+			else
+			{
+				//this.m_ecies_messages = newparse.ecies_messages;
+				for( var vi = 0; vi <  newparse.ecies_messages.length; ++ vi )
+				{
+					this.m_ecies_messages[ newparse.ecies_messages[vi] ] = 0;
+				}
+			}
 		}
 		catch(err)
 		{
@@ -7908,6 +7952,7 @@ Bitcoin.dwallet = (function () {
 		{
 			return undefined;
 		}
+		this.m_ecies_messages[ message ] = 0;
 		return retv[1];
 	};
  	
