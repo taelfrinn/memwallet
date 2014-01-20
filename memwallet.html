@@ -7003,6 +7003,7 @@ Bitcoin.ECIES =
 	//dest_pubkey should be in ecPoint form
 	encrypt_message : function ( dest_pubpoint, message_bytes )
 	{
+//alert( "dest_pubpoint, = " + Crypto.util.bytesToHex(dest_pubpoint.getEncoded(1)) );
 		//generate nonce public/private keypair
 		var nonce_eckey = new Bitcoin.ECKey(false);
 		//validate nonce keypair
@@ -7012,6 +7013,8 @@ Bitcoin.ECIES =
 			return undefined;
 		}
 		var nonce_ecpub_bytes = nonce_eckey.getPub()
+//alert( "nonce_pubpoint, = " + Crypto.util.bytesToHex(nonce_ecpub_bytes) );
+
 		//generate shared secret with point multiplication ( nonce priv * dest pub )
 		var shared_secret = dest_pubpoint.multiply( nonce_eckey.priv );
 		//validate S (not infinity)
@@ -7021,12 +7024,16 @@ Bitcoin.ECIES =
 			return undefined;
 		}
 		//KDF - aes_key and hmac_key
+//alert( "shared_secr, = " + Crypto.util.bytesToHex( shared_secret.getEncoded(1)   ) );
 			var tohash = ByteEnc.ToWords(shared_secret.getEncoded(1));
 			var hash_words = CryptoJS.SHA512( tohash, { asBytes: true } );
 			var keying_data = ByteEnc.FromWords( hash_words );
 		var hmac_key = keying_data.slice(32,64);
 		var aes_key = keying_data.slice(0,32);
 		var aes_iv = nonce_ecpub_bytes.slice(17,33);
+//alert( "aes_iv, = " + Crypto.util.bytesToHex( aes_iv ) );
+//alert( "aes_key, = " + Crypto.util.bytesToHex( aes_key ) );
+//alert( "hmac_key, = " + Crypto.util.bytesToHex( hmac_key ) );
 		// encrypt message
 		var AES_opts = { mode: new Crypto.mode.CFB(), asBytes: true, iv : aes_iv };
 		var crypted_payload = Crypto.AES.encrypt( message_bytes, aes_key, AES_opts);
@@ -7441,7 +7448,7 @@ Bitcoin.invisiwallet = (function () {
 		if(date_parts.length != 3 )
 		{
 			//alert("Date must be YYYY-MM-DD format");
-			this.m_last_error = "Date must be YYYY-MM-DD format";
+			this.m_last_error = "Date must be YYYY-MM-DD format :" + this.m_userdate;
 			return false;
 		}
 		this.m_round_count = 12345 + date_parts[0] * 3 + date_parts[1] * 11 + date_parts[2] * 5;
@@ -7487,7 +7494,7 @@ Bitcoin.dwallet = (function () {
 		this.m_chain_code = [];
 		this.m_last_error = "";
 
-		this.m_algorithm = "dwallet";
+		this.m_algorithm = "invisiwallet";
 		this.m_ecies_messages = {};
 	};
 
@@ -7563,7 +7570,7 @@ Bitcoin.dwallet = (function () {
 
 			if( newparse.algorithm == undefined )
 			{
-				this.m_algorithm = "dwallet";
+				this.m_algorithm = "invisiwallet";
 			}
 			else
 			{
@@ -7678,72 +7685,150 @@ Bitcoin.dwallet = (function () {
 		return [ next_ccode, next_key ];
 	};
 
-	constructor.prototype.get_wallet_key = function( p_passphrase )
+	constructor.prototype.get_wallet_key = function( p_passphrase, cbck )
 	{
-		var new_wallet = this.calc_wallet_key( p_passphrase);
-		if( new_wallet === undefined ) 
+		var old_this = this;
+		var on_done = function( ccode, privkey, fingerprint)
 		{
-			return undefined;
+			if( ! old_this.validate_unlock( ccode, privkey ) )
+			{
+				cbck(undefined);
+				return;
+			}
+			
+			cbck( privkey );
+		};
+
+		this.calc_wallet_key( p_passphrase, on_done );
+	}
+	constructor.prototype.validate_unlock = function( ccode, privkey  )
+	{
+		if( privkey === undefined ) 
+		{
+			return false;
 		}
-		if( Crypto.util.bytesCompare(this.m_chain_code, new_wallet[0]) || 
-			Crypto.util.bytesCompare(this.m_parent_public, new_wallet[1].getPub()) )
+
+		if( Crypto.util.bytesCompare(this.m_chain_code, ccode ) || 
+			Crypto.util.bytesCompare(this.m_parent_public, privkey.getPub()) )
 		{
 			this.m_last_error = "incorrect passphrase";
-			return undefined;
+			return false;
 		}
-		return new_wallet[1];
+		return true;
 	}
-	constructor.prototype.calc_wallet_key = function( p_passphrase )
+	constructor.prototype.calc_wallet_key = function( p_passphrase, completed_cbck )
 	{
 		if( "string" != typeof p_passphrase || p_passphrase.length < 1 )
 		{
 			this.m_last_error = "Passphrase cannot be empty";
-			return undefined;
+			completed_cbck(undefined);
+			return;
+		}
+		var old_this = this;
+
+		var root_ccode;
+		var root_privkey;
+		var on_complete = function( finger )
+		{
+			var return_value = this.calc_next_private( root_privkey, root_ccode, this.m_wallet_ndx );
+			if( return_value === undefined )
+			{
+				completed_cbck(undefined);
+				return;
+			}
+			return_value.push( finger );
+			completed_cbck.apply( undefined, return_value ); //[ ccode, privkey, fingerprint ]
+		};
+
+		if(this.m_algorithm == "invisiwallet" )
+		{
+			var ivwx = new Bitcoin.invisiwallet;
+			ivwx.m_username = this.m_name;
+			ivwx.m_userdate = this.m_date;
+			ivwx.m_walletndx = this.m_wallet_ndx;
+			if( ! ivwx.create_key( p_passphrase, 0 ) )
+			{
+				this.m_last_error = ivwx.m_last_error;
+				completed_cbck(undefined);
+				return;
+			}
+			//DEBUG
+			//alert( "invisi= "	+ ivwx.m_eckey.getBitcoinWalletImportFormat() );
+			root_privkey = ivwx.m_eckey;
+			var root_addr = root_privkey.getPubKeyHash();
+			root_addr.unshift(0x00); // mainnet prefix
+			//calculate chaincode
+			root_ccode = Crypto.HMAC( Crypto.SHA256, root_addr, p_passphrase, { asBytes: true } );
+			//alert( "root ccode = " + Crypto.util.bytesToHex(root_ccode) );
+	
+			var cbkbk = function()
+			{
+				on_complete.apply( old_this, [ ivwx.m_fingerprint ] );
+			};
+			setTimeout( cbkbk, 1); //TODO: make this actually do invisiwallet in a timeout
+			return;
+		}
+		else if(this.m_algorithm == "scrypt" )
+		{
+			var SALT = Crypto.charenc.UTF8.stringToBytes(
+					this.m_name + this.m_date );
+	
+			var complete_create_scrypt = function ( pass_factor )
+			{
+				if( pass_factor.length < 64 )
+				{
+					old_this.m_last_error = "scrypt failed";
+					completed_cbck.apply( undefined, return_value ); //[ ccode, privkey, fingerprint ]
+					return;
+				}
+//alert( "SCRYPT passfact = " + util.bytesToHex(pass_factor) );
+				var root_bytes = pass_factor.slice( 0, 32);
+				root_ccode = pass_factor.slice( 32, 64);
+		
+				root_privkey = new Bitcoin.ECKey( root_bytes );
+
+				on_complete.apply( old_this, ["TODO"] );
+			};
+
+//alert( "CRYPTO SALTS = " + util.bytesToHex(SALT) );
+			Crypto_scrypt( p_passphrase, SALT, 16384, 8, 8, 64, complete_create_scrypt );
+			return;
+		}
+		else
+		{
+			this.m_last_error = "Unknown payload algorithm requested";
+			completed_cbck(undefined);
+			return;
 		}
 
-		var ivwx = new Bitcoin.invisiwallet;
-		ivwx.m_username = this.m_name;
-		ivwx.m_userdate = this.m_date;
-		ivwx.m_walletndx = this.m_wallet_ndx;
-		if( ! ivwx.create_key( p_passphrase, 0 ) )
-		{
-			this.m_last_error = ivwx.m_last_error;
-			return undefined;
-		}
-//DEBUG
-//alert( "invisi= "	+ ivwx.m_eckey.getBitcoinWalletImportFormat() );
-		var root_privkey = ivwx.m_eckey;
-		var root_addr = root_privkey.getPubKeyHash();
-		root_addr.unshift(0x00); // mainnet prefix
-		//calculate chaincode
-		var root_ccode = Crypto.HMAC( Crypto.SHA256, root_addr, p_passphrase, { asBytes: true } );
-//alert( "root ccode = " + Crypto.util.bytesToHex(root_ccode) );
-		var return_value = this.calc_next_private( root_privkey, root_ccode, this.m_wallet_ndx );
-		if( return_value === undefined )
-		{
-			return undefined;
-		}
-		return_value.push( ivwx.m_fingerprint );
-		return return_value;
+		return;
 	};
-
- 	constructor.prototype.create = function( p_name, p_date, p_passphrase, p_wallet_ndx )
+	
+ 	constructor.prototype.create = function( alg, p_name, p_date, p_passphrase, p_wallet_ndx,
+			completed_cbk )
 	{
 		this.m_name = p_name;
 		this.m_date = p_date;
 		this.m_wallet_ndx = p_wallet_ndx;
-		
-		var new_wallet = this.calc_wallet_key( p_passphrase);
-		if( new_wallet === undefined ) 
+		this.m_algorithm = alg;
+	
+		var old_this = this;
+		var on_done = function( ccode, privkey, fingerprint)
 		{
-			return false;
-		}
-		this.m_chain_code = new_wallet[0];
-		this.m_parent_public = new_wallet[1].getPub();
-		this.m_fingerprint = new_wallet[2].m_fingerprint;
+			if( privkey === undefined ) 
+			{
+				completed_cbk(false);
+				return;
+			}
+			old_this.m_chain_code =  ccode;
+			old_this.m_parent_public = privkey.getPub();
+			old_this.m_fingerprint = fingerprint;
 
-		return true;
+			completed_cbk(true);
+		};
+		this.calc_wallet_key( p_passphrase, on_done );
 	};
+
  	constructor.prototype.get_public_key = function( offset )
 	{
 		if( this.m_parent_public === undefined )
@@ -7811,70 +7896,44 @@ Bitcoin.dwallet = (function () {
 		
 		return next[1].getBitcoinWalletImportFormat();
 	}
- 	constructor.prototype.get_private_key = function( p_passphrase, offset )
+ 	constructor.prototype.get_private_key_range = function( p_passphrase, offset, count,
+			callback_done )
 	{
 		if( this.m_parent_public === undefined )
 		{
 			this.m_last_error = "dwallet not initialized";
-			return undefined;
+			callback_done( undefined );
+			return;
 		}
 		if( this.is_readonly() )
 		{
 			this.m_last_error = "dwallet is public only - not enough information to unlock";
-			return undefined;
+			callback_done( undefined );
+			return;
 		}
+		var old_this = this;
 
-		var new_wallet = this.calc_wallet_key( p_passphrase);
-		if( new_wallet === undefined ) 
+		var on_done = function( ccode, privkey, fingerprint )
 		{
-			return undefined;
-		}
-		if( Crypto.util.bytesCompare(this.m_chain_code, new_wallet[0]) || 
-			Crypto.util.bytesCompare(this.m_parent_public, new_wallet[1].getPub()) )
-		{
-			this.m_last_error = "incorrect passphrase";
-			return undefined;
-		}
-		var prev_key = new_wallet[1];
-		return this.get_private_key_internal( prev_key, offset);
+			if( !old_this.validate_unlock( ccode, privkey ) )
+			{
+				callback_done( undefined );
+				return;
+			}
+			var retval = [];
+
+			for( var i = 0 ; i < count; ++ i )
+			{
+				var get_priv = offset + count;
+				retval.push( old_this.get_private_key_internal( privkey, offset+ i ) );
+			}
+
+			callback_done( retval );
+		};
+
+		this.calc_wallet_key( p_passphrase, on_done );
 	};
- 	constructor.prototype.get_private_key_range = function( p_passphrase, offset, count )
-	{
-		if( this.m_parent_public === undefined )
-		{
-			this.m_last_error = "dwallet not initialized";
-			return undefined;
-		}
-		if( this.is_readonly() )
-		{
-			this.m_last_error = "dwallet is public only - not enough information to unlock";
-			return undefined;
-		}
 
-		var new_wallet = this.calc_wallet_key( p_passphrase);
-		if( new_wallet === undefined ) 
-		{
-			return undefined;
-		}
-
-		if( Crypto.util.bytesCompare(this.m_chain_code, new_wallet[0]) || 
-			Crypto.util.bytesCompare(this.m_parent_public, new_wallet[1].getPub()) )
-		{
-			this.m_last_error = "incorrect passphrase";
-			return undefined;
-		}
-
-		var prev_key = new_wallet[1];
-		var retval = [];
-
-		for( var i = 0 ; i < count; ++ i )
-		{
-			var get_priv = offset + count;
-			retval.push( this.get_private_key_internal( prev_key, offset+ i ) );
-		}
-
-		return retval;
-	};
  	constructor.prototype.get_address = function( offset )
 	{
 		// might return a "SKIP"
@@ -7919,41 +7978,51 @@ Bitcoin.dwallet = (function () {
 
 		return [address,message];
 	};
- 	constructor.prototype.receive_stealth_message = function( message, p_passphrase )
+ 	constructor.prototype.receive_stealth_message = function( message, p_passphrase, cbck )
 	{
+		var old_this = this;
 		//base58 decode, recover ecies encrypted packer
 		var crypted_message_bytes = Bitcoin.Base58.decode( message );
 		if( crypted_message_bytes === undefined )
 		{
 			m_last_error = "message must be base58";
-			return undefined;
+			cbck( undefined );
+			return;
 		}
 		//calculate wallet secret from password -- unlock
-		var root_secret_key = this.get_wallet_key( p_passphrase );
-		if( root_secret_key === undefined )
+		var on_done = function( root_secret_key )
 		{
-			return undefined;
-		}
-		//ecies decode to recover nonce
-		var nonce = Bitcoin.ECIES.decrypt_message( root_secret_key, crypted_message_bytes );
-		if( nonce === undefined )
-		{
-			m_last_error = 'Failed to decrypt message:' + Bitcoin.ECIES.m_last_error;
-			return undefined;
-		}
-		if( nonce.length != 32 )
-		{
-			m_last_error = "message is to this wallet, but the content is not the expectected 32 binary bytes"
-			return undefined;
-		}
-		//- calculate shared secret from nonce
-		var retv = this.calc_stealth_private( root_secret_key, nonce );
-		if( retv === undefined )
-		{
-			return undefined;
-		}
-		this.m_ecies_messages[ message ] = 0;
-		return retv[1];
+//alert("constructor.prototype.receive_stealth_message on done begin");
+			if( root_secret_key === undefined )
+			{
+				cbck(undefined);
+				return;
+			}
+			//ecies decode to recover nonce
+			var nonce = Bitcoin.ECIES.decrypt_message( root_secret_key, crypted_message_bytes );
+			if( nonce === undefined )
+			{
+				old_this.m_last_error = 'Failed to decrypt message:' + Bitcoin.ECIES.m_last_error;
+				cbck(undefined);
+				return;
+			}
+			if( nonce.length != 32 )
+			{
+				old_this.m_last_error = "message is to this wallet, but the content is not the expectected 32 binary bytes";
+				cbck(undefined);
+				return;
+			}
+			//- calculate shared secret from nonce
+			var retv = old_this.calc_stealth_private( root_secret_key, nonce );
+			if( retv === undefined )
+			{
+				cbck(undefined);
+				return;
+			}
+			old_this.m_ecies_messages[ message ] = 0;
+			cbck( retv[1] );
+		};
+		var root_secret_key = this.get_wallet_key( p_passphrase, on_done );
 	};
  	
 	return constructor;
@@ -8261,8 +8330,11 @@ body { font-family: Arial; }
 					</div>
 				</div>
 				<div class="row extra">
-					<span><input tabindex="7" type="button" id="memwalletcreate" value="Create" onclick="ninja.wallets.memwallet_create.create();" /></span>
-					<span id="memalgorithm" class="notes right">Algorithm: DWALLET</span>
+					<input type="radio" name="alg" id="memwalletcreate_invis" value="invisiwallet" checked>Invisiwallet
+					<input type="radio" name="alg" id="memwalletcreate_scrypt" value="scrypt">Scrypt
+				</div>
+				<div class="row extra">
+					<span><input tabindex="7" type="button" id="memwalletcreate_button" value="Create" onclick="ninja.wallets.memwallet_create.create();" /></span>
 				</div>
 				<div class="row extra">
 					<span id="memwarning"></span>
@@ -9906,6 +9978,8 @@ ninja.wallets.memwallet_create = {
 		var wndx = document.getElementById('memwallet_ndx').value;
 		var pwd = document.getElementById('memwallet_passphrase').value;
 		var pwd2 = document.getElementById('memwallet_passphrase_ver').value;
+		var alg = document.getElementById('memwalletcreate_invis').checked ?
+				"invisiwallet" : "scrypt" ;
 	
 		if( pwd != pwd2 )
 		{
@@ -9922,22 +9996,29 @@ ninja.wallets.memwallet_create = {
 		  	ninja.setdwal(undefined );
 			return;
 		}
+	
+		var on_create_complete = function ( good )
+		{
+			document.getElementById('memwalletcreate_button').disabled = false;
+			if( ! good )
+			{
+				alert("Failed to create dwallet: " + dwal.m_last_error );
+				ninja.setdwal(undefined );
+			}
+			else
+			{
+				//document.getElementById('memwalletjson').value = dwal.toJSONString();
+				document.getElementById('memwallet_fingerprint').value = dwal.m_fingerprint;
+				//alert("Address 0: " + dwal.get_address( 0 ) );
+				ninja.setdwal(dwal );
+				alert("Success. You can now view addresses and key, export you wallet on the load/save tab, etc.");
+			}
+			document.getElementById('memwallet_passphrase').value = "";
+			document.getElementById('memwallet_passphrase_ver').value = "";
+		}
 
-		if( ! dwal.create( unm, udt, pwd, wndx) )
-		{
-			alert("Failed to create dwallet: " + dwal.m_last_error );
-		  	ninja.setdwal(undefined );
-		}
-		else
-		{
-			//document.getElementById('memwalletjson').value = dwal.toJSONString();
-			document.getElementById('memwallet_fingerprint').value = dwal.m_fingerprint;
-			//alert("Address 0: " + dwal.get_address( 0 ) );
-		  	ninja.setdwal(dwal );
-		}
-		document.getElementById('memwallet_passphrase').value = "";
-		document.getElementById('memwallet_passphrase_ver').value = "";
-		alert("Success. You can now view addresses and key, export you wallet on the load/save tab, etc.");
+		document.getElementById('memwalletcreate_button').disabled = true;
+		dwal.create( alg, unm, udt, pwd, wndx, on_create_complete);
 	}
 };
 ninja.wallets.memwallet_view = {
@@ -10084,23 +10165,26 @@ ninja.wallets.memwallet_priv = {
 			"Wallet Private Keys from " + offset + " to " + (offset+count-1) + "\n";
 
 		document.getElementById('memwallet_unlock_passphrase').value = "";
-		var addr = dwal.get_private_key_range( p_pass, offset, count );
-		if( addr === undefined )
+		var show_priv_done = function( prevses )
 		{
-			ilst.value = "Error: " + dwal.m_last_error;
-		}
-		else if(typeof addr== 'string')
-		{
-			ilst.value = addr;
-		}
-		else
-		{
-			//ilst.value = "Lenght: " + addr.length + "\n";
-			for( var i = 0 ; i < addr.length ; ++ i )
+			if( prevses === undefined )
 			{
-				ilst.value +=  addr[i] + "\n";
+				ilst.value = "Error: " + dwal.m_last_error;
 			}
-		}
+			else if(typeof prevses== 'string')
+			{
+				ilst.value = prevses;
+			}
+			else
+			{
+				//ilst.value = "Lenght: " + prevses.length + "\n";
+				for( var i = 0 ; i < prevses.length ; ++ i )
+				{
+					ilst.value +=  prevses[i] + "\n";
+				}
+			}
+		};
+		dwal.get_private_key_range( p_pass, offset, count, show_priv_done );
 	}
 };
 ninja.wallets.memwallet_stealth = {
@@ -10237,16 +10321,21 @@ ninja.wallets.memwallet_stealth = {
 		var p_passphr = document.getElementById('memwallet_stealth_passphrase').value;
 		var crypted_message = document.getElementById('mem_stealth_crypted').value;
 
-		var retv = dwal.receive_stealth_message( crypted_message, p_passphr );
-		if(  retv ===undefined  )
+		var on_rxdone = function ( retv )
 		{
-			alert( "Failed to receive: " + dwal.m_last_error );
-			return;
-		}
-		
-		var setto = "Success!\nView the coins sent this stealth address here:\n"  + retv.getBitcoinAddress() +
-			"\nUse this private key to get coins sent to you:\n" + retv.getBitcoinWalletImportFormat();
-		document.getElementById('mem_stealth_decrypted').value = setto;
+			document.getElementById('mem_ecies_recv_but').disabled = false;
+			if(  retv ===undefined  )
+			{
+				alert( "Failed to receive: " + dwal.m_last_error );
+				return;
+			}
+
+			var setto = "Success!\nView the coins sent this stealth address here:\n"  + retv.getBitcoinAddress() +
+				"\nUse this private key to get coins sent to you:\n" + retv.getBitcoinWalletImportFormat();
+			document.getElementById('mem_stealth_decrypted').value = setto;
+		};
+		document.getElementById('mem_ecies_recv_but').disabled = true;
+		dwal.receive_stealth_message( crypted_message, p_passphr, on_rxdone );
 	},
 
 	decrypt : function ()
@@ -10268,24 +10357,29 @@ ninja.wallets.memwallet_stealth = {
 			return;
 		}
 
-		var root_secret_key = dwal.get_wallet_key( p_passphr );
-		if( root_secret_key ===undefined )
+		var on_got = function ( root_secret_key )
 		{
-			alert("Failed to decrypt: " + dwal.m_last_error );
-			return;
-		}
-		var decrypted = Bitcoin.ECIES.decrypt_message( root_secret_key, crypted_message_bytes );
+			document.getElementById('mem_ecies_decr_but').disabled = false;
+			if( root_secret_key ===undefined )
+			{
+				alert("Failed to decrypt: " + dwal.m_last_error );
+				return;
+			}
+			var decrypted = Bitcoin.ECIES.decrypt_message( root_secret_key, crypted_message_bytes );
 
-		if( decrypted === undefined )
-		{
-			alert('Failed to decrypt message:' + Bitcoin.ECIES.m_last_error );
-		}
-		else
-		{
-			//convert to b64
-			var setto = Crypto.charenc.UTF8.bytesToString( decrypted );
-			document.getElementById('mem_stealth_decrypted').value = setto;
-		}
+			if( decrypted === undefined )
+			{
+				alert('Failed to decrypt message:' + Bitcoin.ECIES.m_last_error );
+			}
+			else
+			{
+				//convert to b64
+				var setto = Crypto.charenc.UTF8.bytesToString( decrypted );
+				document.getElementById('mem_stealth_decrypted').value = setto;
+			}
+		};
+		document.getElementById('mem_ecies_decr_but').disabled = true;
+		dwal.get_wallet_key( p_passphr, on_got );
 	},
 
 	receive_any : function ()
@@ -10460,8 +10554,6 @@ ninja.wallets.detailwallet = {
 		document.getElementById("detailmini").style.display = "none";
 		document.getElementById("detailbip38commands").style.display = "none";
 		document.getElementById("detailbip38").style.display = "none";
-		ninja.setdwal(undefined);
-		//TODO: clear more stuff
 	}
 };
 	</script>
