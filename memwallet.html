@@ -8251,7 +8251,7 @@ body { font-family: Arial; }
 			<div class="tab" id="memwallet_stealth" onclick="ninja.tabSwitch(this);">Steath Messages</div>
 			<div class="tab" id="detailwallet" onclick="ninja.tabSwitch(this);">Analyze Private Key</div>
 		</div>
-		
+
 		<div id="generate">
 			<span id="generatelabelbitcoinaddress">Generating Bitcoin Address...</span><br />
 			<span id="generatelabelmovemouse">MOVE your mouse around to add some extra randomness...</span><br />
@@ -9868,6 +9868,17 @@ ninja.translator.showEnglishJson = function () {
 };
 
 	</script>
+<script type="text/javascript">
+//screen locking
+window.LockScreen = function()
+{
+	document.getElementById("busyblock").className = "busy";
+};
+window.UnlockScreen = function()
+{
+	document.getElementById("busyblock").className = "";
+};
+</script>
 	<script type="text/javascript">
 ninja.setdwal = function (dwal )
 {
@@ -9999,6 +10010,7 @@ ninja.wallets.memwallet_create = {
 	
 		var on_create_complete = function ( good )
 		{
+			UnlockScreen();
 			document.getElementById('memwalletcreate_button').disabled = false;
 			if( ! good )
 			{
@@ -10017,6 +10029,7 @@ ninja.wallets.memwallet_create = {
 			document.getElementById('memwallet_passphrase_ver').value = "";
 		}
 
+		LockScreen();
 		document.getElementById('memwalletcreate_button').disabled = true;
 		dwal.create( alg, unm, udt, pwd, wndx, on_create_complete);
 	}
@@ -10167,6 +10180,7 @@ ninja.wallets.memwallet_priv = {
 		document.getElementById('memwallet_unlock_passphrase').value = "";
 		var show_priv_done = function( prevses )
 		{
+			UnlockScreen();
 			if( prevses === undefined )
 			{
 				ilst.value = "Error: " + dwal.m_last_error;
@@ -10184,6 +10198,7 @@ ninja.wallets.memwallet_priv = {
 				}
 			}
 		};
+		LockScreen();
 		dwal.get_private_key_range( p_pass, offset, count, show_priv_done );
 	}
 };
@@ -10323,7 +10338,8 @@ ninja.wallets.memwallet_stealth = {
 
 		var on_rxdone = function ( retv )
 		{
-			document.getElementById('mem_ecies_recv_but').disabled = false;
+			UnlockScreen();
+			
 			if(  retv ===undefined  )
 			{
 				alert( "Failed to receive: " + dwal.m_last_error );
@@ -10334,7 +10350,8 @@ ninja.wallets.memwallet_stealth = {
 				"\nUse this private key to get coins sent to you:\n" + retv.getBitcoinWalletImportFormat();
 			document.getElementById('mem_stealth_decrypted').value = setto;
 		};
-		document.getElementById('mem_ecies_recv_but').disabled = true;
+		
+		LockScreen();
 		dwal.receive_stealth_message( crypted_message, p_passphr, on_rxdone );
 	},
 
@@ -10359,6 +10376,7 @@ ninja.wallets.memwallet_stealth = {
 
 		var on_got = function ( root_secret_key )
 		{
+			UnlockScreen();
 			document.getElementById('mem_ecies_decr_but').disabled = false;
 			if( root_secret_key ===undefined )
 			{
@@ -10378,7 +10396,7 @@ ninja.wallets.memwallet_stealth = {
 				document.getElementById('mem_stealth_decrypted').value = setto;
 			}
 		};
-		document.getElementById('mem_ecies_decr_but').disabled = true;
+		LockScreen();
 		dwal.get_wallet_key( p_passphr, on_got );
 	},
 
