@@ -7493,6 +7493,7 @@ Bitcoin.dwallet = (function () {
 		this.m_parent_public = [];
 		this.m_chain_code = [];
 		this.m_last_error = "";
+		this.m_priv_key = undefined;
 
 		this.m_algorithm = "invisiwallet";
 		this.m_ecies_messages = {};
@@ -7690,12 +7691,13 @@ Bitcoin.dwallet = (function () {
 		var old_this = this;
 		var on_done = function( ccode, privkey, fingerprint)
 		{
-			if( ! old_this.validate_unlock( ccode, privkey ) )
+			if( ! old_this.validate_unlock( ccode, privkey) )
 			{
-				cbck(undefined);
+				cbck(undefined, undefined);
 				return;
 			}
-			
+			old_this.m_priv_key = privkey;
+
 			cbck( privkey );
 		};
 
@@ -7736,7 +7738,9 @@ Bitcoin.dwallet = (function () {
 				completed_cbck(undefined);
 				return;
 			}
+
 			return_value.push( finger );
+
 			completed_cbck.apply( undefined, return_value ); //[ ccode, privkey, fingerprint ]
 		};
 
@@ -7823,6 +7827,7 @@ Bitcoin.dwallet = (function () {
 			old_this.m_chain_code =  ccode;
 			old_this.m_parent_public = privkey.getPub();
 			old_this.m_fingerprint = fingerprint;
+			old_this.m_priv_key = privkey;
 
 			completed_cbk(true);
 		};
@@ -7885,6 +7890,29 @@ Bitcoin.dwallet = (function () {
 		}
 		return false;
 	}
+	constructor.prototype.is_unlocked = function()
+	{
+		if( this.m_parent_public === undefined )
+		{
+			this.m_last_error = "dwallet not initialized";
+			return false;
+		}
+		if( this.is_readonly() )
+		{
+			this.m_last_error = "dwallet is public only - not enough information to unlock";
+			return false;
+		}
+		if( this.m_priv_key === undefined )
+		{
+			this.m_last_error = "dwallet is locked, please unlock it first";
+			return false;
+		}
+		return true;
+	}
+	constructor.prototype.lock = function()
+	{
+		this.m_priv_key = undefined;
+	}
  	constructor.prototype.get_private_key_internal = function( prev_key, offset )
 	{
 		var next = this.calc_next_private(prev_key, this.m_chain_code, offset );
@@ -7896,42 +7924,24 @@ Bitcoin.dwallet = (function () {
 		
 		return next[1].getBitcoinWalletImportFormat();
 	}
- 	constructor.prototype.get_private_key_range = function( p_passphrase, offset, count,
-			callback_done )
+ 	constructor.prototype.get_private_key_range = function( offset, count, callback_done )
 	{
-		if( this.m_parent_public === undefined )
+		if( ! this.is_unlocked() )
 		{
-			this.m_last_error = "dwallet not initialized";
+			this.m_last_error = "can get private keys from a locked wallet";
 			callback_done( undefined );
 			return;
 		}
-		if( this.is_readonly() )
+
+		var retval = [];
+
+		for( var i = 0 ; i < count; ++ i )
 		{
-			this.m_last_error = "dwallet is public only - not enough information to unlock";
-			callback_done( undefined );
-			return;
+			var get_priv = offset + count;
+			retval.push( this.get_private_key_internal( this.m_priv_key, offset+ i ) );
 		}
-		var old_this = this;
 
-		var on_done = function( ccode, privkey, fingerprint )
-		{
-			if( !old_this.validate_unlock( ccode, privkey ) )
-			{
-				callback_done( undefined );
-				return;
-			}
-			var retval = [];
-
-			for( var i = 0 ; i < count; ++ i )
-			{
-				var get_priv = offset + count;
-				retval.push( old_this.get_private_key_internal( privkey, offset+ i ) );
-			}
-
-			callback_done( retval );
-		};
-
-		this.calc_wallet_key( p_passphrase, on_done );
+		callback_done( retval );
 	};
 
  	constructor.prototype.get_address = function( offset )
@@ -7978,9 +7988,15 @@ Bitcoin.dwallet = (function () {
 
 		return [address,message];
 	};
- 	constructor.prototype.receive_stealth_message = function( message, p_passphrase, cbck )
+ 	constructor.prototype.receive_stealth_message = function( message, cbck )
 	{
-		var old_this = this;
+		if( ! this.is_unlocked() )
+		{
+			this.m_last_error = "can get receive ecies messages from a locked wallet";
+			cbck( undefined );
+			return;
+		}
+
 		//base58 decode, recover ecies encrypted packer
 		var crypted_message_bytes = Bitcoin.Base58.decode( message );
 		if( crypted_message_bytes === undefined )
@@ -7989,40 +8005,32 @@ Bitcoin.dwallet = (function () {
 			cbck( undefined );
 			return;
 		}
-		//calculate wallet secret from password -- unlock
-		var on_done = function( root_secret_key )
+
+		var root_secret_key = this.m_priv_key;
+
+		//ecies decode to recover nonce
+		var nonce = Bitcoin.ECIES.decrypt_message( root_secret_key, crypted_message_bytes );
+		if( nonce === undefined )
 		{
-//alert("constructor.prototype.receive_stealth_message on done begin");
-			if( root_secret_key === undefined )
-			{
-				cbck(undefined);
-				return;
-			}
-			//ecies decode to recover nonce
-			var nonce = Bitcoin.ECIES.decrypt_message( root_secret_key, crypted_message_bytes );
-			if( nonce === undefined )
-			{
-				old_this.m_last_error = 'Failed to decrypt message:' + Bitcoin.ECIES.m_last_error;
-				cbck(undefined);
-				return;
-			}
-			if( nonce.length != 32 )
-			{
-				old_this.m_last_error = "message is to this wallet, but the content is not the expectected 32 binary bytes";
-				cbck(undefined);
-				return;
-			}
-			//- calculate shared secret from nonce
-			var retv = old_this.calc_stealth_private( root_secret_key, nonce );
-			if( retv === undefined )
-			{
-				cbck(undefined);
-				return;
-			}
-			old_this.m_ecies_messages[ message ] = 0;
-			cbck( retv[1] );
-		};
-		var root_secret_key = this.get_wallet_key( p_passphrase, on_done );
+			this.m_last_error = 'Failed to decrypt message:' + Bitcoin.ECIES.m_last_error;
+			cbck(undefined);
+			return;
+		}
+		if( nonce.length != 32 )
+		{
+			this.m_last_error = "message is to this wallet, but the content is not the expectected 32 binary bytes";
+			cbck(undefined);
+			return;
+		}
+		//- calculate shared secret from nonce
+		var retv = this.calc_stealth_private( root_secret_key, nonce );
+		if( retv === undefined )
+		{
+			cbck(undefined);
+			return;
+		}
+		this.m_ecies_messages[ message ] = 0; //stash in hash
+		cbck( retv[1] );
 	};
  	
 	return constructor;
@@ -8246,8 +8254,8 @@ body { font-family: Arial; }
 		<div class="menu" id="menu">
 			<div class="tab selected" id="memwallet_load" onclick="ninja.tabSwitch(this);">Load/Save Wallet</div>
 			<div class="tab" id="memwallet_create" onclick="ninja.tabSwitch(this);">Create/Recreate Wallet</div>
-			<div class="tab" id="memwallet_view" onclick="ninja.tabSwitch(this);">View Wallet Addresses</div>
-			<div class="tab" id="memwallet_priv" onclick="ninja.tabSwitch(this);">Unlock &amp; View Private Keys</div>
+			<div class="tab" id="memwallet_view" onclick="ninja.tabSwitch(this);">Addresses &amp; Private Keys</div>
+			<div class="tab" id="memwallet_priv" onclick="ninja.tabSwitch(this);">Unlock Wallet</div>
 			<div class="tab" id="memwallet_stealth" onclick="ninja.tabSwitch(this);">Steath Messages</div>
 			<div class="tab" id="detailwallet" onclick="ninja.tabSwitch(this);">Analyze Private Key</div>
 		</div>
@@ -8374,8 +8382,7 @@ body { font-family: Arial; }
 					</div>
 					<textarea rows="11" cols="80" id="mem_addr_list"></textarea>
 				</div>
-			</div>
-			<div id="memprivarea" class="walletarea">
+				<hr>
 				<div class="row extra">
 					<span class="label" id="mem_priv_dynlab">&nbsp;</span>
 					<input id="mem_priv_offs" value="0"/>
@@ -8385,18 +8392,29 @@ body { font-family: Arial; }
 					<input id="mem_priv_count" value="10"/>
 				</div>
 				<div class="row extra">
-					<span class="label">Wallet Unlock Passphrase : </span>
-					<input tabindex="2" type="password" id="memwallet_unlock_passphrase" >
-				</div>
-				<div class="row extra">
 					<span><input tabindex="2" type="button" id="mem_get_privs" value="View WIF's" 
-									onclick="ninja.wallets.memwallet_priv.show_addrs();" /></span>
+									onclick="ninja.wallets.memwallet_view.show_privs();" /></span>
 				</div>
 				<div class="body">
 					<div class="row">
 						<span class="label" id="mem_get_lab_privs_01" ></span>
 					</div>
 					<textarea rows="11" cols="80" id="mem_priv_list"></textarea>
+				</div>
+			</div>
+			<div id="memprivarea" class="walletarea">
+				<span><h3 id="memprivarea_status">Lock/Unlock</h3></span>
+				<div class="row extra">
+					<span class="label">Wallet Unlock Passphrase : </span>
+					<input tabindex="2" type="password" id="memwallet_unlock_passphrase" >
+				</div>
+				<div class="row extra">
+					<span><input tabindex="2" type="button" id="mem_unlock_but" value="Unlock" 
+									onclick="ninja.wallets.memwallet_priv.unlock_wallet();" /></span>
+				</div>
+				<div class="row extra">
+					<span><input tabindex="2" type="button" id="mem_relock_but" value="Lock Wallet" 
+									onclick="ninja.wallets.memwallet_priv.lock_wallet();" /></span>
 				</div>
 			</div>
 			<div id="memstealtharea" class="walletarea">
@@ -8417,10 +8435,6 @@ body { font-family: Arial; }
 				</div>
 				<div class="row extra">
 					<textarea rows="4" cols="80" id="mem_stealth_crypted"></textarea>
-				</div>
-				<div class="row extra">
-					<span class="label">Wallet passphrase:</span>
-					<input tabindex="2" type="password" id="memwallet_stealth_passphrase" >
 				</div>
 				<div class="row extra">
 					<button id="mem_ecies_decr_but"
@@ -9897,13 +9911,44 @@ ninja.setdwal = function (dwal )
 		}
 		else
 		{
-			document.getElementById('wal_status').value = "\"" + ninja.dwal.m_name + "\" #" + 
-				ninja.dwal.m_wallet_ndx + " Loaded";
-			document.body.style.backgroundColor = "#FF9C00";
+			if( ninja.dwal.is_unlocked() )
+			{
+				document.getElementById('wal_status').value = "\"" + ninja.dwal.m_name + 
+					"\" #" + ninja.dwal.m_wallet_ndx + " Unlocked";
+				document.body.style.backgroundColor = "#FF2400";
+			}
+			else
+			{
+				document.getElementById('wal_status').value = "\"" + ninja.dwal.m_name + "\" #" + 
+						ninja.dwal.m_wallet_ndx + " Locked";
+				document.body.style.backgroundColor = "#A0D6B4";
+			}
 		}
 	}
 };
 ninja.setdwal(undefined);
+ninja.DoUnlock = function ( obj, callba )
+{
+	if( ninja.dwal === undefined )
+	{
+		alert("No Wallet is loaded, cannot perform this function!");
+		return;
+	}
+	if( ninja.dwal.is_readonly() )
+	{
+		alert("This wallet does not have enough information to unlock; it can only show private keys.");
+		return;
+	}
+	if( ! ninja.dwal.is_unlocked() )
+	{
+		//TODO: show the unlock dialog
+		//perform unlock
+		alert("This wallet is locked, please unlock it then try this.");
+		return;
+	}
+	callba.call(obj);
+	return;
+};
 ninja.wallets.memwallet_load = {
 	open: function () {
 		  document.getElementById("memloadarea").style.display = "block";
@@ -10047,6 +10092,11 @@ ninja.wallets.memwallet_view = {
 			document.getElementById('mem_get_count').hidden = true;
 			document.getElementById('mem_get_count_lab').hidden = true;
 			document.getElementById('mem_get_addrs').disabled = true;
+			document.getElementById('mem_priv_dynlab').innerHTML = 'No Wallet Loaded';
+			document.getElementById('mem_priv_offs').hidden = true;
+			document.getElementById('mem_priv_count').hidden = true;
+			document.getElementById('mem_priv_count_lab').hidden = true;
+			document.getElementById('mem_get_privs').disabled = true;
 		}
 		else
 		{
@@ -10055,6 +10105,31 @@ ninja.wallets.memwallet_view = {
 			document.getElementById('mem_get_addrs').disabled = false;
 			document.getElementById('mem_get_count').hidden = false;
 			document.getElementById('mem_get_count_lab').hidden = false;
+			
+			if( ninja.dwal.is_unlocked() )
+			{
+				document.getElementById('mem_priv_dynlab').innerHTML = 'View Private keys in this wallet, starting from:';
+				document.getElementById('mem_priv_offs').hidden = false;
+				document.getElementById('mem_get_privs').disabled = false;
+				document.getElementById('mem_priv_count').hidden = false;
+				document.getElementById('mem_priv_count_lab').hidden = false;
+			}
+			else
+			{
+				document.getElementById('mem_priv_offs').hidden = true;
+				document.getElementById('mem_priv_count').hidden = true;
+				document.getElementById('mem_priv_count_lab').hidden = true;
+				document.getElementById('mem_get_privs').disabled = true;
+				if( ninja.dwal.is_readonly())
+				{
+					document.getElementById('mem_priv_dynlab').innerHTML = 'Loaded Wallet is Read Only';
+				}
+				else
+				{
+					document.getElementById('mem_priv_dynlab').innerHTML = 'Loaded Wallet is Locked';
+				}
+			}
+
 		}
 		document.getElementById('mem_addr_list').value="";
 		document.getElementById('mem_get_lab_addrs_01').value="";
@@ -10100,48 +10175,8 @@ ninja.wallets.memwallet_view = {
 			var addr = dwal.get_address( at_offset );
 			ilst.value +=  addr + "\n";
 		}
-	}
-};
-ninja.wallets.memwallet_priv = {
-	open: function () {
-		document.getElementById("memprivarea").style.display = "block";
-		if( ninja.dwal === undefined )
-		{
-			document.getElementById('mem_priv_dynlab').innerHTML = 'No Wallet Loaded';
-			document.getElementById('mem_priv_offs').hidden = true;
-			document.getElementById('mem_priv_count').hidden = true;
-			document.getElementById('mem_priv_count_lab').hidden = true;
-			document.getElementById('mem_get_privs').disabled = true;
-			document.getElementById('memwallet_unlock_passphrase').disabled=true;
-		}
-		else if( ninja.dwal.is_readonly() )
-		{
-			document.getElementById('mem_priv_dynlab').innerHTML = 'Loaded Wallet is Read Only';
-			document.getElementById('mem_priv_offs').hidden = true;
-			document.getElementById('mem_priv_count').hidden = true;
-			document.getElementById('mem_priv_count_lab').hidden = true;
-			document.getElementById('mem_get_privs').disabled = true;
-			document.getElementById('memwallet_unlock_passphrase').disabled=true;
-		}
-		else
-		{
-			document.getElementById('mem_priv_dynlab').innerHTML = 'View addresses in this wallet, starting from:';
-			document.getElementById('mem_priv_offs').hidden = false;
-			document.getElementById('mem_get_privs').disabled = false;
-			document.getElementById('mem_priv_count').hidden = false;
-			document.getElementById('mem_priv_count_lab').hidden = false;
-			document.getElementById('memwallet_unlock_passphrase').disabled=false;
-		}
-		document.getElementById('mem_priv_list').value="";
-		document.getElementById('mem_get_lab_privs_01').value="";
-		document.getElementById('memwallet_unlock_passphrase').value = "";
 	},
-
-	close: function () {
-		document.getElementById("memprivarea").style.display = "none";
-	},
-
-	show_addrs : function ()
+	show_privs : function ()
 	{
 		var dwal = ninja.dwal;//shortcut
 		//check if the dwal is healthy
@@ -10152,13 +10187,9 @@ ninja.wallets.memwallet_priv = {
 		{
 			return;
 		}
+		document.getElementById('mem_priv_list').value="";
+		document.getElementById('mem_get_lab_privs_01').value="";
 
-		if( dwal === undefined )
-		{
-			alert("No wallet loaded!")
-			return;
-		}
-		
 		var offset = parseInt(document.getElementById('mem_priv_offs').value );
 		var count = parseInt(document.getElementById('mem_priv_count').value );
 
@@ -10175,25 +10206,24 @@ ninja.wallets.memwallet_priv = {
 		var ilst = document.getElementById('mem_priv_list');
 		ilst.value = "";
 
-		var p_pass = document.getElementById('memwallet_unlock_passphrase').value;
-
-		document.getElementById('mem_get_lab_privs_01').innerHTML = 
-			"Wallet Private Keys from " + offset + " to " + (offset+count-1) + "\n";
-
-		document.getElementById('memwallet_unlock_passphrase').value = "";
 		var show_priv_done = function( prevses )
 		{
 			UnlockScreen();
 			if( prevses === undefined )
 			{
+				document.getElementById('mem_get_lab_privs_01').innerHTML = "";
 				ilst.value = "Error: " + dwal.m_last_error;
 			}
 			else if(typeof prevses== 'string')
 			{
+				document.getElementById('mem_get_lab_privs_01').innerHTML = "";
 				ilst.value = prevses;
 			}
 			else
 			{
+				document.getElementById('mem_get_lab_privs_01').innerHTML = 
+					"Wallet Private Keys from " + offset + " to " + (offset+count-1) + "\n";
+
 				//ilst.value = "Lenght: " + prevses.length + "\n";
 				for( var i = 0 ; i < prevses.length ; ++ i )
 				{
@@ -10201,9 +10231,92 @@ ninja.wallets.memwallet_priv = {
 				}
 			}
 		};
-		LockScreen();
-		dwal.get_private_key_range( p_pass, offset, count, show_priv_done );
+		var on_unlock = function()
+		{
+			LockScreen();
+			dwal.get_private_key_range( offset, count, show_priv_done );
+		};
+		ninja.DoUnlock( this, on_unlock );
 	}
+};
+ninja.wallets.memwallet_priv = {
+	open: function () {
+		document.getElementById("memprivarea").style.display = "block";
+		ninja.wallets.memwallet_priv.refresh();
+	},
+
+	refresh: function () {
+		if( ninja.dwal === undefined )
+		{
+			document.getElementById('memprivarea_status').innerHTML = "No Wallet Loaded";
+			document.getElementById('memwallet_unlock_passphrase').disabled=true;
+			document.getElementById('mem_unlock_but').disabled=true;
+			document.getElementById('mem_relock_but').disabled=true;
+		}
+		else if( ninja.dwal.is_readonly() )
+		{
+			document.getElementById('memprivarea_status').innerHTML = "Public Key Only Wallet Loaded";
+			document.getElementById('memwallet_unlock_passphrase').disabled=true;
+			document.getElementById('mem_unlock_but').disabled=true;
+			document.getElementById('mem_relock_but').disabled=true;
+		}
+		else if( ninja.dwal.is_unlocked() )
+		{
+			document.getElementById('memprivarea_status').innerHTML = "Wallet is Unlocked";
+			document.getElementById('memwallet_unlock_passphrase').disabled=true;
+			document.getElementById('mem_unlock_but').disabled=true;
+			document.getElementById('mem_relock_but').disabled=false;
+		}
+		else
+		{
+			document.getElementById('memprivarea_status').innerHTML = "Wallet is Locked";
+			document.getElementById('memwallet_unlock_passphrase').disabled=false;
+			document.getElementById('mem_unlock_but').disabled=false;
+			document.getElementById('mem_relock_but').disabled=true;
+		}
+		document.getElementById('memwallet_unlock_passphrase').value = "";
+	},
+
+	close: function () {
+		document.getElementById("memprivarea").style.display = "none";
+	},
+
+	unlock_wallet: function ()
+	{
+		var dwal = ninja.dwal;//shortcut
+		p_pass = document.getElementById('memwallet_unlock_passphrase').value;
+		var on_got = function( privkey )
+		{
+			UnlockScreen();
+			if( privkey === undefined  )
+			{
+				alert("Failed to unlock: " + dwal.m_last_error );
+				return;
+			}
+			alert("Success!");
+			
+			ninja.wallets.memwallet_priv.refresh();
+			ninja.setdwal(dwal);
+		};
+		if( dwal !== undefined )
+		{
+			LockScreen();
+			dwal.get_wallet_key( p_pass, on_got );
+		}
+	},
+
+	lock_wallet: function ()
+	{
+		var dwal = ninja.dwal;//shortcut
+		if( dwal !== undefined )
+		{
+			dwal.m_priv_key = undefined;
+			alert("Wallet has been re-locked.");
+			ninja.wallets.memwallet_priv.refresh();
+			ninja.setdwal(dwal);
+		}
+	}
+
 };
 ninja.wallets.memwallet_stealth = {
 	open: function () {
@@ -10331,12 +10444,6 @@ ninja.wallets.memwallet_stealth = {
 		var dwal = ninja.dwal;//shortcut
 		//check if the dwal is healthy
 	
-		if( dwal === undefined )
-		{
-			alert("No wallet loaded!")
-			return;
-		}
-		var p_passphr = document.getElementById('memwallet_stealth_passphrase').value;
 		var crypted_message = document.getElementById('mem_stealth_crypted').value;
 
 		var on_rxdone = function ( retv )
@@ -10354,8 +10461,13 @@ ninja.wallets.memwallet_stealth = {
 			document.getElementById('mem_stealth_decrypted').value = setto;
 		};
 		
-		LockScreen();
-		dwal.receive_stealth_message( crypted_message, p_passphr, on_rxdone );
+		var on_unlock = function()
+		{
+			LockScreen();
+			dwal.receive_stealth_message( crypted_message, on_rxdone );
+		};
+
+		ninja.DoUnlock( this, on_unlock );
 	},
 
 	decrypt : function ()
@@ -10368,7 +10480,6 @@ ninja.wallets.memwallet_stealth = {
 			alert("No wallet loaded!")
 			return;
 		}
-		var p_passphr = document.getElementById('memwallet_stealth_passphrase').value;
 		var crypted_message = document.getElementById('mem_stealth_crypted').value;
 		var crypted_message_bytes = Crypto.util.base64ToBytes(crypted_message);
 		if( crypted_message_bytes === undefined )
@@ -10377,15 +10488,10 @@ ninja.wallets.memwallet_stealth = {
 			return;
 		}
 
-		var on_got = function ( root_secret_key )
+		var do_the_decrypt = function (  )
 		{
-			UnlockScreen();
-			document.getElementById('mem_ecies_decr_but').disabled = false;
-			if( root_secret_key ===undefined )
-			{
-				alert("Failed to decrypt: " + dwal.m_last_error );
-				return;
-			}
+			var root_secret_key = dwal.m_priv_key;
+
 			var decrypted = Bitcoin.ECIES.decrypt_message( root_secret_key, crypted_message_bytes );
 
 			if( decrypted === undefined )
@@ -10399,8 +10505,7 @@ ninja.wallets.memwallet_stealth = {
 				document.getElementById('mem_stealth_decrypted').value = setto;
 			}
 		};
-		LockScreen();
-		dwal.get_wallet_key( p_passphr, on_got );
+		ninja.DoUnlock( this, do_the_decrypt );
 	},
 
 	receive_any : function ()
