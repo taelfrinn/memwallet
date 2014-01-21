@@ -1,8 +1,10 @@
 
-
-improve blocking behavior on unlock and create
+unlock modal popup ?
+how to handle unlocking
 
 keep wallet unlocked, and have a timer to forget the passphrase ?
+	this would make the damn thing yea much faster
+		have a display area for the state:  no wallet/Wallet Loaded [PO]/Wallet Unlocked
 make whole border red ?
 
 fingerprint generation

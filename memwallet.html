@@ -8069,7 +8069,7 @@ body { font-family: Arial; }
 #singleshare { position: relative; top: -110px; float: left; left: 160px; color: green; font-weight: bolder; font-size: 200%;  }
 #singlesafety { text-align: left; padding: 5px; border-top: 2px solid green; top: -25px; position: relative; }
 
-#main { position: relative; text-align: center; margin: 0px auto; width: 1005px; }
+#main { position: relative; text-align: center; margin: 0px auto; width: 1005px; background-color: white }
 #logo { width: 578px; height: 80px; }
 #generate { font-family: monospace; font-size: 1.25em; height: 158px; text-align: left; position: relative; padding: 5px; border: 2px solid green; }
 #generate span { padding: 5px 5px 0 5px; }
@@ -9886,17 +9886,20 @@ ninja.setdwal = function (dwal )
 	if( ninja.dwal === undefined )
 	{
 		document.getElementById('wal_status').value = "No Wallet Loaded";
+		document.body.style.backgroundColor = "white";
 	}
 	else
 	{
 		if( ninja.dwal.is_readonly() )
 		{
 			document.getElementById('wal_status').value = "Unidentified Wallet Loaded PUBLIC ONLY";
+			document.body.style.backgroundColor = "#E6F9F0";
 		}
 		else
 		{
 			document.getElementById('wal_status').value = "\"" + ninja.dwal.m_name + "\" #" + 
 				ninja.dwal.m_wallet_ndx + " Loaded";
+			document.body.style.backgroundColor = "#FF9C00";
 		}
 	}
 };
