@@ -10128,11 +10128,15 @@ ninja.wallets.memwallet_view = {
 
 		}
 		document.getElementById('mem_addr_list').value="";
+		document.getElementById('mem_priv_list').value="";
+		document.getElementById('mem_get_lab_privs_01').value="";
 		document.getElementById('mem_get_lab_addrs_01').value="";
 	},
 
 	close: function () {
 		document.getElementById("memviewarea").style.display = "none";
+		document.getElementById('mem_priv_list').value="";
+		document.getElementById('mem_get_lab_privs_01').value="";
 	},
 
 	show_addrs : function ()
