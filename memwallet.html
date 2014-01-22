@@ -8280,16 +8280,12 @@ body { font-family: Arial; }
 				<div class="row extra" id="memwallet_save_json_div">
 					<p>Full Wallet JSON:
 					<div class="row extra" >
-						<textarea rows="10" cols="80" id="memwallet_save_json" readonly></textarea>
+						<textarea rows="10" cols=120" id="memwallet_save_json" readonly></textarea>
 					</div>
-				</div>
-				<div class="row extra" id="memwallet_save_json_div">
 					<p>More Anonymous, public keys only JSON version:
 					<div class="row extra" >
 						<textarea rows="10" cols="80" id="memwallet_save_json_po" readonly></textarea>
 					</div>
-				</div>
-				<div class="row extra" id="memwallet_save_json_div">
 					<p>public keys only QR version:
 					<div class="row extra" >
 						<span id="memwal_qr_txt" ></span>
@@ -9955,7 +9951,7 @@ ninja.wallets.memwallet_load = {
 		  document.getElementById('memwallet_load_json').value = "";
 		  if( ninja.dwal !== undefined )
 		  {
-			  //document.getElementById('memwallet_save_json_div').hidden = false;
+			  document.getElementById('memwallet_save_json_div').hidden = false;
 			  document.getElementById('memwallet_save_json_po').value = ninja.dwal.toJSONStringPO();
 			  if( ! ninja.dwal.is_readonly() )
 			  {
@@ -9974,7 +9970,7 @@ ninja.wallets.memwallet_load = {
 		  }
 		  else
 		  {
-			  //document.getElementById('memwallet_save_json_div').hidden = true;
+			  document.getElementById('memwallet_save_json_div').hidden = true;
 			  document.getElementById('memwallet_save_json').value = "";
 			  document.getElementById('memwallet_save_json_po').value = "";
 			  document.getElementById('memwal_qr').innerHTML = "";

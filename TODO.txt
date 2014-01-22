@@ -1,11 +1,4 @@
 
-unlock modal popup ?
-how to handle unlocking
-
-keep wallet unlocked, and have a timer to forget the passphrase ?
-	this would make the damn thing yea much faster
-		have a display area for the state:  no wallet/Wallet Loaded [PO]/Wallet Unlocked
-make whole border red ?
 
 fingerprint generation
 
@@ -19,13 +12,15 @@ MINOR
 	memwallet: add stealth nonces to private serialization
 	add warning if RNG not seeded - alert?
 
-	receive stealth coin
+	receive stealth coin - change interface to a batch style operation
 		add stealth coin
-		decode stealth coins - separate batch operation
+		decode stealth coins - batch operation to show all coins
 
 	timers to do the dwallet generation
-		progress bar that locks whole screen
+		progress bar to display unlock/generate percent complete
 		timer with heartthrobbing mightbe best
+
+	keep wallet unlocked, and have a timer to forget the passphrase ?
 
 MAJOR
 	refactor top down, adding only my stuff
