@@ -7498,6 +7498,19 @@ Bitcoin.dwallet = (function () {
 		this.m_algorithm = "invisiwallet";
 		this.m_ecies_messages = {};
 	};
+	
+	constructor.prototype.get_ecies_copy = function()
+	{
+		var temp = [];
+		for(var i in this.m_ecies_messages)
+		{	
+			if (this.m_ecies_messages.hasOwnProperty(i))
+			{ 
+				temp.push(i); 
+			} 
+		}
+		return temp;
+	};
 
 	constructor.prototype.toJSONString = function()
 	{
@@ -7513,9 +7526,8 @@ Bitcoin.dwallet = (function () {
 		rets += "\t\"algorithm\" : \"" + this.m_algorithm + "\",\n";
 		rets += '\t"ecies_messages" : [';
 
-		var temp = [];
-		for(var i in this.m_ecies_messages)
-		{	if (this.m_ecies_messages.hasOwnProperty(i)) { temp.push(i); } }
+		var temp = this.get_ecies_copy();
+
 		for( var xi = 0; xi < temp.length ; ++ xi)
 		{
 			if( xi > 0)
@@ -8415,16 +8427,14 @@ body { font-family: Arial; }
 			</div>
 			<div id="memstealtharea" class="walletarea">
 				<div class="row extra">
-					<input type=button onclick="ninja.wallets.memwallet_stealth.get_stealth_addr();" 
-					value="Generate a stealth address to send coins to this wallet" >
-					<span><input type="button" value="Encrypt plain text message to this Mem-Wallet:" 
-							onclick="ninja.wallets.memwallet_stealth.encrypt();" /></span>
-				</div>
-				<div class="row extra">
 					<span class="label" >Message to Send:</span>
 				</div>
 				<div class="row extra">
 					<textarea rows="6" cols="80" id="mem_stealth_send"></textarea>
+				</div>
+				<div class="row extra">
+					<span><input type="button" value="Encrypt plain text message to this Mem-Wallet:" 
+							onclick="ninja.wallets.memwallet_stealth.encrypt();" /></span>
 				</div>
 				<div class="row extra">
 					<span class="label">Encrypted Message:</span>
@@ -8435,12 +8445,40 @@ body { font-family: Arial; }
 				<div class="row extra">
 					<button id="mem_ecies_decr_but"
 						onclick="ninja.wallets.memwallet_stealth.decrypt();">Decrypt</button>
-					<button type="button" id="mem_ecies_recv_but"
-							onclick="ninja.wallets.memwallet_stealth.receive_stealthcoin();" 
-							>Receive stealth Address message</button>
 				</div>
 				<div class="row extra">
 					<textarea rows="11" cols="80" id="mem_stealth_decrypted"></textarea>
+				</div>
+				<hr>
+				<div class="row extra">
+					<input type=button onclick="ninja.wallets.memwallet_stealth.get_stealth_addr();" 
+					value="Generate a stealth address to send coins to this wallet" >
+				</div>
+				<div class="row extra">
+					<span  class="label">Send to Address:</span>
+					<input readonly id="mem_gen_addr_stealthcoin" value="" style="width:30em" />
+				</div>
+				<div class="row extra">
+					<span  class="label">Encoded Stealth Address Message (send to recipient):</span>
+				</div>
+				<div class="row extra">
+					<textarea rows="3" cols="80" id="mem_gen_enc_stealthcoin"></textarea>
+				</div>
+				<div class="row extra">
+					<button type="button" id="mem_ecies_recv_but"
+							onclick="ninja.wallets.memwallet_stealth.add_stealthcoin();" 
+							>Add stealth address message to wallet</button>
+				</div>
+				<div class="row extra">
+					<select id="mem_ecies_list" size=8></select>
+				</div>
+				<div class="row extra">
+					<button type="button" id="mem_ecies_sc_deco_but"
+							onclick="ninja.wallets.memwallet_stealth.decode_stealthcoin();" 
+							>Decode Stealthcoins</button>
+				</div>
+				<div class="row extra">
+					<textarea rows="11" cols="80" id="mem_stealthcoin_decrypted"></textarea>
 				</div>
 				<hr>
 				<div class="row extra">
@@ -10321,6 +10359,10 @@ ninja.wallets.memwallet_priv = {
 ninja.wallets.memwallet_stealth = {
 	open: function () {
 		document.getElementById("memstealtharea").style.display = "block";
+		ninja.wallets.memwallet_stealth.list_stealthcoins();
+		document.getElementById('mem_stealthcoin_decrypted').value = "";
+		document.getElementById('mem_stealth_decrypted').value = "";
+		document.getElementById('mem_stealth_any_decrypted').value = "";
 	},
 
 	close: function () {
@@ -10372,7 +10414,6 @@ ninja.wallets.memwallet_stealth = {
 			document.getElementById('mem_stealth_crypted').value = newld_setto;
 			
 			document.getElementById('mem_ecies_decr_but').innerHTML = "<b>Decrypt!</b>";
-			document.getElementById('mem_ecies_recv_but').innerHTML = "<i>receive stealth coins</i>";
 		}
 	},
 	send_any : function ()
@@ -10430,41 +10471,77 @@ ninja.wallets.memwallet_stealth = {
 			alert("failed to generate stealth addr: " + dwal.m_last_error );
 			return;
 		}
-		document.getElementById('mem_stealth_send').value = 
-			"send coins to this normal bitcoin address:\n" + address[0] +
-			"\n\nAnd, send the ECIES encoded message below to the recipient, so they can receive the coins:\n";
-
-		document.getElementById('mem_stealth_crypted').value = address[1];
-		document.getElementById('mem_ecies_decr_but').innerHTML = "<i>decrypt</i>";
-		document.getElementById('mem_ecies_recv_but').innerHTML = "<b>Receive Stealth Coins!</b>";
+		document.getElementById('mem_gen_addr_stealthcoin').value =  address[0];
+		document.getElementById('mem_gen_enc_stealthcoin').value = address[1];
 	},
 
-	receive_stealthcoin : function ()
+	list_stealthcoins : function ()
+	{
+		var thelist = document.getElementById('mem_ecies_list');
+		while( thelist.length > 0 )
+		{
+			thelist.remove(0);
+		}
+		var dwal = ninja.dwal;//shortcut
+		if( dwal !== undefined )
+		{
+			var temp = dwal.get_ecies_copy();
+			for( var i =0 ; i < temp.length ; ++i )
+			{
+				var option = document.createElement("option");
+				option.text = temp[i];
+				thelist.add(option );
+			}
+		}
+	},
+	add_stealthcoin : function ()
+	{
+		var dwal = ninja.dwal;//shortcut
+		//check if the dwal is healthy
+		if( dwal === undefined )
+		{
+			alert("No wallet loaded!")
+			return;
+		}
+	
+		var crypted_message = document.getElementById('mem_gen_enc_stealthcoin').value;
+		dwal.m_ecies_messages[crypted_message]=0;
+		ninja.wallets.memwallet_stealth.list_stealthcoins();
+	},
+
+	decode_stealthcoin : function ()
 	{
 		var dwal = ninja.dwal;//shortcut
 		//check if the dwal is healthy
 	
-		var crypted_message = document.getElementById('mem_stealth_crypted').value;
+		var decrypted = [];
 
 		var on_rxdone = function ( retv )
 		{
-			UnlockScreen();
-			
 			if(  retv ===undefined  )
 			{
-				alert( "Failed to receive: " + dwal.m_last_error );
+				decrypted.push("Failed to receive: " + dwal.m_last_error );
 				return;
 			}
 
-			var setto = "Success!\nView the coins sent this stealth address here:\n"  + retv.getBitcoinAddress() +
-				"\nUse this private key to get coins sent to you:\n" + retv.getBitcoinWalletImportFormat();
-			document.getElementById('mem_stealth_decrypted').value = setto;
+			//var setto = "Success!\nView the coins sent this stealth address here:\n"  + retv.getBitcoinAddress() +
+			//	"\nUse this private key to get coins sent to you:\n" + 
+			decrypted.push(retv.getBitcoinWalletImportFormat() );
 		};
 		
 		var on_unlock = function()
 		{
-			LockScreen();
-			dwal.receive_stealth_message( crypted_message, on_rxdone );
+			var temp = dwal.get_ecies_copy();
+			for( var i =0 ; i < temp.length ; ++i )
+			{
+				dwal.receive_stealth_message( temp[i], on_rxdone );
+			}
+			var setto = "";
+			for(var i =0; i < decrypted.length; ++i )
+			{
+				setto += decrypted[i] + "\n";
+			}
+			document.getElementById('mem_stealthcoin_decrypted').value = setto;
 		};
 
 		ninja.DoUnlock( this, on_unlock );
