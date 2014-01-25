@@ -7776,6 +7776,24 @@ Bitcoin.dwallet = (function () {
 		}
 		return temp;
 	};
+	constructor.prototype.validate_name_date = function()
+	{
+		if( null == this.m_name || this.m_name.length < 1 )
+		{
+			//alert("Name is too short");
+			this.m_last_error = "Name is too short";
+			return false;
+		}
+		var date_parts = this.m_date.split('-');
+		if(date_parts.length != 3 )
+		{
+			//alert("Date must be YYYY-MM-DD format");
+			this.m_last_error = "Date must be YYYY-MM-DD format :" + this.m_date;
+			return false;
+		}
+		this.m_round_count = 12345 + date_parts[0] * 3 + date_parts[1] * 11 + date_parts[2] * 5;
+		return true;
+	};
 
 	constructor.prototype.toJSONString = function()
 	{
@@ -7998,6 +8016,11 @@ Bitcoin.dwallet = (function () {
 	}
 	constructor.prototype.calc_wallet_key = function( p_passphrase, completed_cbck )
 	{
+		if( !this.validate_name_date() )
+		{
+			completed_cbck(undefined);
+			return;
+		}
 		if( "string" != typeof p_passphrase || p_passphrase.length < 1 )
 		{
 			this.m_last_error = "Passphrase cannot be empty";
@@ -8079,7 +8102,8 @@ Bitcoin.dwallet = (function () {
 			};
 
 //alert( "CRYPTO SALTS = " + util.bytesToHex(SALT) );
-			Crypto_scrypt( p_passphrase, SALT, 16384, 8, 8, 64, complete_create_scrypt );
+			Crypto_scrypt( p_passphrase, SALT, 16384, 8, 8, 64, 
+					complete_create_scrypt );
 			return;
 		}
 		else
@@ -8635,6 +8659,9 @@ body { font-family: Arial; }
 					have probably created the same wallet as before.
 					<div class="row extra">
 						<span class="label">Fingerprint:</label><input style='width:40em' id="memwallet_fingerprint"  readonly />
+					</div>
+					<div class="row extra">
+						<span class="label">Round Count:</label><input style='width:40em' id="memwallet_round_count"  readonly />
 					</div>
 				</div>
 				<!-- div class="body">
@@ -10337,6 +10364,7 @@ ninja.wallets.memwallet_create = {
 		  document.getElementById("memcreatearea").style.display = "block";
 		  //document.getElementById('memwalletjson').value = "";
 		  document.getElementById('memwallet_fingerprint').value = "";
+		  document.getElementById('memwallet_round_count').value = "";
 		  document.getElementById('memwallet_passphrase').value = "";
 		  document.getElementById('memwallet_passphrase_ver').value = "";
 	},
@@ -10386,6 +10414,7 @@ ninja.wallets.memwallet_create = {
 			{
 				//document.getElementById('memwalletjson').value = dwal.toJSONString();
 				document.getElementById('memwallet_fingerprint').value = dwal.m_fingerprint;
+		  		document.getElementById('memwallet_round_count').value = dwal.m_round_count;
 				//alert("Address 0: " + dwal.get_address( 0 ) );
 				ninja.setdwal(dwal );
 				alert("Success. You can now view addresses and key, export you wallet on the load/save tab, etc.");
