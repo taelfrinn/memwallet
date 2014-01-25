@@ -8605,7 +8605,8 @@ body { font-family: Arial; }
 				<div class="row extra">
 					<p> There is no substitute for a strong passphrase. Please choose one with at least 120 bits
 						of apparent entropy. I do not recommend making one up with your mind, use a computer
-						program such as Electrum to generate one randomly, use get a 6 sided die and roll one with Diceware.
+						program such as Electrum to <a href="javascript:electr_rand_pass();">generate one randomly</a>, 
+						use get a 6 sided die and roll one with Diceware.
 						I reccomend avoiding special characters, mixed case, or other gimmicks. 
 							Please see <a href="https://xkcd.com/936/">XKCD 936</a> 
 					<div class="row extra">
@@ -10197,6 +10198,16 @@ window.LockScreen = function()
 window.UnlockScreen = function()
 {
 	document.getElementById("busyblock").className = "";
+};
+</script>
+<script  type="text/javascript">
+function electr_rand_pass()
+{
+	var bytes = new Array(16);
+	var rng = new SecureRandom();
+	rng.nextBytes(bytes);
+	var pass = mn_encode_from_bin(bytes);
+	alert(pass);
 };
 </script>
 	<script type="text/javascript">
