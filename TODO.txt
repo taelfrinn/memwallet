@@ -1,6 +1,8 @@
 
-
-fingerprint generation
+add feature to dwa
+	sweep Addr to myself
+		coin for coin, with new addr for each,
+		opposite of current mode, which is a payout mode
 
 MINOR
 	electrum style password suggestifier- mn_encode from brainwallet
