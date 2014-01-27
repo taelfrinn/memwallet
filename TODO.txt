@@ -4,25 +4,20 @@ add feature to dwa
 		coin for coin, with new addr for each,
 		opposite of current mode, which is a payout mode
 
+add
+	warp wallet back end
+		scrypt ^ pbkdf2
+
 MINOR
-	electrum style password suggestifier- mn_encode from brainwallet
-
 	better RNG impl?
-
-	memwallet: send message to any pubkey(hex) select using a radio button
-	memwallet: javascript stealthcoins
-	memwallet: add stealth nonces to private serialization
 	add warning if RNG not seeded - alert?
-
-	receive stealth coin - change interface to a batch style operation
-		add stealth coin
-		decode stealth coins - batch operation to show all coins
 
 	timers to do the dwallet generation
 		progress bar to display unlock/generate percent complete
 		timer with heartthrobbing mightbe best
+		alt; web worker to do it
 
-	keep wallet unlocked, and have a timer to forget the passphrase ?
+	have a timer to lock an unlocked wallet
 
 MAJOR
 	refactor top down, adding only my stuff
