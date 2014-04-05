@@ -1,12 +1,12 @@
 
-add feature to dwa
-	sweep Addr to myself
-		coin for coin, with new addr for each,
-		opposite of current mode, which is a payout mode
 
-add
-	warp wallet back end
-		scrypt ^ pbkdf2
+local storage of wallet json
+	add scan information controlling what was scanned
+	add unspent records, organized by coin_ndx or stealthaddr
+
+Get a faster scrypt implementation which is not as horribly slowish
+	validate algorithm too
+
 
 MINOR
 	better RNG impl?
@@ -21,6 +21,11 @@ MINOR
 
 MAJOR
 	refactor top down, adding only my stuff
+
+	add
+	warp wallet back end
+		scrypt ^ pbkdf2
+
 
 	update everything to latest version of cryptojs,
 		This may impact other codes, like scrypt and bitcoin key classes
