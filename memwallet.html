@@ -8602,6 +8602,7 @@ body { font-family: Arial; }
 			<div class="tab" id="memwallet_view" onclick="ninja.tabSwitch(this);">Addresses &amp; Private Keys</div>
 			<div class="tab" id="memwallet_priv" onclick="ninja.tabSwitch(this);">Unlock Wallet</div>
 			<div class="tab" id="memwallet_stealth" onclick="ninja.tabSwitch(this);">Steath Messages</div>
+			<div class="tab" id="secure_messages" onclick="ninja.tabSwitch(this);">Secure Messages</div>
 			<div class="tab" id="detailwallet" onclick="ninja.tabSwitch(this);">Analyze Private Key</div>
 		</div>
 
@@ -8847,6 +8848,44 @@ body { font-family: Arial; }
 				</div>
 				<div class="row extra">
 					<textarea rows="11" cols="80" id="mem_stealth_any_decrypted"></textarea>
+				</div>
+			</div>
+			<div id="securemessagesarea" class="walletarea">
+				<div class="row extra">
+					<span class="label" >Message to Send:</span>
+				</div>
+				<div class="row extra">
+					<textarea rows="6" cols="80" id="secm_sendmssg"></textarea>
+				</div>
+				<div class="row extra">
+					<span class="label">Public Key of message destination:</span>
+					<input width=50 id="sec_send_any_pubkey">
+				</div>
+				<div class="row extra">
+					<span class="label">WIF to Encode message:</span>
+					<input type="password" id="sec_rx_WIF" >
+				</div>
+				<div class="row extra">
+					<span><input type="button" value="Encrypt and Sign Message" 
+							onclick="ninja.wallets.tODO:();" /></span>
+				</div>
+				<div class="row extra">
+					<span class="label">Encrypted Message</span>
+				</div>
+				<div class="row extra">
+					<textarea rows="4" cols="80" id="secm_encrmessage"></textarea>
+				</div>
+				<p>Receive Secure Message:
+				<div class="row extra">
+					<span class="label">WIF to Decode message:</span>
+					<input tabindex="2" type="password" id="sec_rx_WIF" >
+				</div>
+				<div class="row extra">
+					<span><input type="button" value="Decrypt and Verify Message" 
+							onclick="ninja.wallets.tODO:();" /></span>
+				</div>
+				<div class="row extra">
+					<textarea rows="11" cols="80" id="sec_decry"></textarea>
 				</div>
 			</div>
 
@@ -10977,6 +11016,104 @@ ninja.wallets.memwallet_stealth = {
 			document.getElementById('mem_stealth_any_decrypted').value = setto;
 		}
 	}
+};
+	</script>
+	<script type="text/javascript">
+ninja.wallets.secure_messages = {
+	open: function () {
+		document.getElementById("securemessagesarea").style.display = "block";
+	},
+
+	close: function () {
+		document.getElementById("securemessagesarea").style.display = "none";
+	},
+
+	encrypt : function ()
+	{
+		var dwal = ninja.dwal;//shortcut
+		//check if the dwal is healthy
+	
+		if( dwal === undefined )
+		{
+			alert("No wallet loaded!")
+			return;
+		}
+
+		var message = document.getElementById('mem_stealth_send').value;
+		var message_bytes = Crypto.charenc.UTF8.stringToBytes(message);
+		var pubpoint_k = new Bitcoin.ECKey(false);
+		pubpoint_k.setPub( dwal.m_parent_public );
+		var crypted = Bitcoin.ECIES.encrypt_message( pubpoint_k.getPubPoint() , message_bytes );
+
+		if( crypted === undefined )
+		{
+			alert('Failed to encrypt message');
+		}
+		else
+		{
+			//convert to b64
+			var setto = Crypto.util.bytesToBase64( crypted );
+			var newl = 0;
+			var newld_setto = "";
+			while( newl < setto.length )
+			{
+				if( (newl + 65) < setto.length )
+				{
+					newld_setto += setto.substring( newl, newl+65 );
+					newld_setto += "\n";
+					newl += 65;
+				}
+				else
+				{
+					newld_setto += setto.substring( newl );
+					newld_setto += "\n";
+					break;
+				}
+			}
+			document.getElementById('mem_stealth_crypted').value = newld_setto;
+			
+			document.getElementById('mem_ecies_decr_but').innerHTML = "<b>Decrypt!</b>";
+		}
+	},
+	
+	decrypt : function ()
+	{
+		var dwal = ninja.dwal;//shortcut
+		//check if the dwal is healthy
+	
+		if( dwal === undefined )
+		{
+			alert("No wallet loaded!")
+			return;
+		}
+		var crypted_message = document.getElementById('mem_stealth_crypted').value;
+		var crypted_message_bytes = Crypto.util.base64ToBytes(crypted_message);
+		if( crypted_message_bytes === undefined )
+		{
+			alert("failed to base 64 decode base 64 message");
+			return;
+		}
+
+		var do_the_decrypt = function (  )
+		{
+			var root_secret_key = dwal.m_priv_key;
+
+			var decrypted = Bitcoin.ECIES.decrypt_message( root_secret_key, crypted_message_bytes );
+
+			if( decrypted === undefined )
+			{
+				alert('Failed to decrypt message:' + Bitcoin.ECIES.m_last_error );
+			}
+			else
+			{
+				//convert to b64
+				var setto = Crypto.charenc.UTF8.bytesToString( decrypted );
+				document.getElementById('mem_stealth_decrypted').value = setto;
+			}
+		};
+		ninja.DoUnlock( this, do_the_decrypt );
+	}
+
 };
 	</script>
 	<script type="text/javascript">
