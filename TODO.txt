@@ -1,5 +1,6 @@
 
 
+
 local storage of wallet json
 	add scan information controlling what was scanned
 	add unspent records, organized by coin_ndx or stealthaddr

@@ -7357,6 +7357,225 @@ Bitcoin.ECIES =
 };
 
 </script>
+<script type="text/javascript">
+	//signature stuff:
+
+function msg_numToVarInt(i) {
+    if (i < 0xfd) {
+      return [i];
+    } else if (i <= 0xffff) {
+      // can't use numToVarInt from bitcoinjs, BitcoinQT wants big endian here (!)
+      return [0xfd, i & 255, i >>> 8];
+    } else {
+        throw ("message too large");
+    }
+}
+
+function msg_bytes(message) {
+    var b = Crypto.charenc.UTF8.stringToBytes(message);
+    return msg_numToVarInt(b.length).concat(b);
+}
+
+function msg_digest(message) {
+    var b = msg_bytes("Bitcoin Signed Message:\n").concat(msg_bytes(message));
+	var ret = Crypto.SHA256(Crypto.SHA256(b, {asBytes:true}), {asBytes:true});
+	return ret;
+}
+function verify_message(signature, message ) {
+    try {
+        var sig = Crypto.util.base64ToBytes(signature);
+    } catch(err) {
+		alert( "sig not base 64");
+        return false;
+    }
+
+    if (sig.length != 65)
+	{
+		alert( "sig not 65 bytes long decoded");
+        return false;
+	}
+
+    // extract r,s from signature
+    var r = BigInteger.fromByteArrayUnsigned(sig.slice(1,1+32));
+    var s = BigInteger.fromByteArrayUnsigned(sig.slice(33,33+32));
+
+    // get recid
+    var compressed = true;// no support for non-compressed
+    var nV = sig[0];
+    if (nV < 27 || nV >= 35)
+	{
+		alert( "invalid nV");
+        return false;
+	}
+    if (nV >= 31) {
+        compressed = true;
+        nV -= 4;
+    }
+    var recid = BigInteger.valueOf(nV - 27);
+
+    var ecparams = EllipticCurve.getSECCurveByName("secp256k1");
+    var curve = ecparams.getCurve();
+    var a = curve.getA().toBigInteger();
+    var b = curve.getB().toBigInteger();
+    var p = curve.getQ();
+    var G = ecparams.getG();
+    var order = ecparams.getN();
+
+    var x = r.add(order.multiply(recid.divide(BigInteger.valueOf(2))));
+    var alpha = x.multiply(x).multiply(x).add(a.multiply(x)).add(b).mod(p);
+    var beta = alpha.modPow(p.add(BigInteger.ONE).divide(BigInteger.valueOf(4)), p);
+    var y = beta.subtract(recid).isEven() ? beta : p.subtract(beta);
+
+    var R = new EllipticCurve.PointFp(curve, curve.fromBigInteger(x), curve.fromBigInteger(y));
+    var e = BigInteger.fromByteArrayUnsigned(msg_digest(message));
+    var minus_e = e.negate().mod(order);
+    var inv_r = r.modInverse(order);
+    var Q = (R.multiply(s).add(G.multiply(minus_e))).multiply(inv_r);
+
+    var public_key = Q.getEncoded(compressed);
+    var addr = new Bitcoin.Address(Bitcoin.Util.sha256ripe160(public_key));
+
+    addr.version = 0;
+    return addr.toString();
+}
+
+function sign_message(private_key, message ) 
+{
+	var compressed = true;
+    if (!private_key)
+        throw new Error("no private key provided");
+
+    var signature = private_key.sign(msg_digest(message));
+    var address = new Bitcoin.Address(private_key.getPubKeyHash());
+    address.version = 0;
+
+    //convert ASN.1-serialized signature to bitcoin-qt format
+    var obj = Bitcoin.ECDSA.parseSig(signature);
+    var sequence = [0];
+    sequence = sequence.concat(obj.r.toByteArrayUnsigned());
+    sequence = sequence.concat(obj.s.toByteArrayUnsigned());
+
+    for (var i = 0; i < 4; i++) {
+        var nV = 27 + i;
+        if (compressed)
+            nV += 4;
+        sequence[0] = nV;
+        var sig = Crypto.util.bytesToBase64(sequence);
+        if (verify_message(sig, message ) == address)
+            return sig;
+    }
+
+    throw new Error("Could not encode a signature");
+    return false;
+}
+var qtHdr = [
+	"-----BEGIN BITCOIN SIGNED MESSAGE-----",
+	"-----BEGIN BITCOIN SIGNATURE-----",
+	"-----END BITCOIN SIGNATURE-----"
+	];
+
+function fullTrim(message)
+{
+	message = message.replace(/^\s+|\s+$/g, '');
+	message = message.replace(/^\n+|\n+$/g, '');
+	return message;
+}
+function makeSignedMessage( msg, addr, sig)
+{
+	return qtHdr[0]+'\n'+msg +'\n'+qtHdr[1]+'\nAddress: '+addr+'\n\n'+sig+'\n'+qtHdr[2];
+}
+function structured_sign( message, private_eckey )
+{
+	if ( !message || !private_eckey )
+		throw new Error( "invalid params to structured_sign" );
+
+	var signingaddr = private_eckey.getBitcoinAddress();
+
+	message = fullTrim(message);
+
+	var sig = sign_message( private_eckey, message );
+
+	if(!sig)
+		return;
+
+	return makeSignedMessage(message, signingaddr, sig);
+};
+function splitSignature(s)
+{
+	var addr = '';
+	var sig = s;
+	if ( s.indexOf('\n')>=0 )
+	{
+		var a = s.split('\n');
+		addr = a[0];
+
+		// always the last
+		sig = a[a.length-1];
+
+		// try named fields
+		var h1 = 'Address: ';
+		for (i in a) {
+			var m = a[i];
+			if ( m.indexOf(h1)>=0 )
+				addr = m.substring(h1.length, m.length);
+		}
+
+		// address should not contain spaces
+		if (addr.indexOf(' ')>=0)
+			addr = '';
+
+		// some forums break signatures with spaces
+		sig = sig.replace(" ","");
+	}
+	return { "address":addr, "signature":sig };
+};
+function splitSignedMessage(s)
+{
+	s = s.replace('\r','');
+
+	for (var i=0; i<2; i++ )
+	{
+		var hdr = qtHdr;
+
+		var p0 = s.indexOf(hdr[0]);
+		if ( p0>=0 )
+		{
+			var p1 = s.indexOf(hdr[1]);
+			if ( p1>p0 )
+			{
+				var p2 = s.indexOf(hdr[2]);
+				if ( p2>p1 )
+				{
+					var msg = s.substring(p0+hdr[0].length+1, p1-1);
+					var sig = s.substring(p1+hdr[1].length+1, p2-1);
+					var m = splitSignature(sig);
+					msg = fullTrim(msg); // doesn't work without this
+					return { "message":msg, "address":m.address, "signature":m.signature };
+				}
+			}
+		}
+	}
+	return false;
+};
+function structured_verify( signed_message )
+{
+	var p = splitSignedMessage( signed_message );
+	if( ! p )
+	{
+		return [ false, null ];
+	}
+	var res = verify_message(p.signature, p.message );
+
+	if ( p && res && p.address==res )
+	{
+		// export message part somehow
+		return [ true, p.message ];
+	}
+	alert("res = " + res.toString() + " \naddr = " + p.address.toString() );
+
+	return [ false, null ];
+}
+</script>
 	<script type="text/javascript">
 /*
 * Copyright (c) 2010-2011 Intalio Pte, All Rights Reserved
@@ -8722,6 +8941,8 @@ body { font-family: Arial; }
 				<div class="row extra">
 					<span><input tabindex="2" type="button" id="mem_get_addrs" value="View Addresses" 
 									onclick="ninja.wallets.memwallet_view.show_addrs();" /></span>
+					<span><input tabindex="2" type="button" id="mem_get_addrs" value="View Public Keys" 
+									onclick="ninja.wallets.memwallet_view.show_public();" /></span>
 				</div>
 				<div class="body">
 					<div class="row">
@@ -8859,15 +9080,15 @@ body { font-family: Arial; }
 				</div>
 				<div class="row extra">
 					<span class="label">Public Key of message destination:</span>
-					<input width=50 id="sec_send_any_pubkey">
+					<input style="width: 40em;" id="sec_send_any_pubkey">
 				</div>
 				<div class="row extra">
-					<span class="label">WIF to Encode message:</span>
-					<input type="password" id="sec_rx_WIF" >
+					<span class="label">WIF to Sign message:</span>
+					<input style="width: 40em;" type="password" id="sec_tx_WIF" >
 				</div>
 				<div class="row extra">
 					<span><input type="button" value="Encrypt and Sign Message" 
-							onclick="ninja.wallets.tODO:();" /></span>
+							onclick="ninja.wallets.secure_messages.encrypt();" /></span>
 				</div>
 				<div class="row extra">
 					<span class="label">Encrypted Message</span>
@@ -8878,11 +9099,14 @@ body { font-family: Arial; }
 				<p>Receive Secure Message:
 				<div class="row extra">
 					<span class="label">WIF to Decode message:</span>
-					<input tabindex="2" type="password" id="sec_rx_WIF" >
+					<input style="width: 40em;" tabindex="2" type="password" id="sec_rx_WIF" >
 				</div>
 				<div class="row extra">
 					<span><input type="button" value="Decrypt and Verify Message" 
-							onclick="ninja.wallets.tODO:();" /></span>
+							onclick="ninja.wallets.secure_messages.decrypt();" /></span>
+				</div>
+				<div class="row extra">
+					<span class="label">Decrypted Message</span>
 				</div>
 				<div class="row extra">
 					<textarea rows="11" cols="80" id="sec_decry"></textarea>
@@ -10615,6 +10839,48 @@ ninja.wallets.memwallet_view = {
 			ilst.value +=  addr + "\n";
 		}
 	},
+	show_public : function ()
+	{
+		var dwal = ninja.dwal;//shortcut
+		//check if the dwal is healthy
+
+		if( dwal === undefined )
+		{
+			alert("No wallet loaded!")
+			return;
+		}
+		
+		var offset = parseInt(document.getElementById('mem_get_offs').value );
+		var count = parseInt(document.getElementById('mem_get_count').value );
+
+		if( count < 1 )
+		{
+			count = 1;
+		}
+		else if( count > 200 )
+		{
+			count = 200;
+		}
+		document.getElementById('mem_get_count').value = count;
+	
+		var ilst = document.getElementById('mem_addr_list');
+		ilst.value = "";
+
+		document.getElementById('mem_get_lab_addrs_01').innerHTML = 
+			"Wallet Addresses from " + offset + " to " + (offset+count-1) + "\n";
+
+		for( var i = 0 ; i < count ; ++ i )
+		{
+			var at_offset = offset + i;
+			var addr = dwal.get_public_key( at_offset );
+			if(typeof addr != 'string')
+			{
+				//addr is a warning message if it is a string
+				addr = Bitcoin.Base58.encode_check( addr );
+			}
+			ilst.value +=  addr + "\n";
+		}
+	},
 	show_privs : function ()
 	{
 		var dwal = ninja.dwal;//shortcut
@@ -11019,6 +11285,11 @@ ninja.wallets.memwallet_stealth = {
 };
 	</script>
 	<script type="text/javascript">
+function msg_digest_for_sig(message_bytes) {
+    var b = msg_bytes("Bitcoin Signed Message:\n").concat(msg_bytes(message));
+	var ret = Crypto.SHA256(Crypto.SHA256(b, {asBytes:true}), {asBytes:true});
+	return ret;
+}
 ninja.wallets.secure_messages = {
 	open: function () {
 		document.getElementById("securemessagesarea").style.display = "block";
@@ -11030,88 +11301,101 @@ ninja.wallets.secure_messages = {
 
 	encrypt : function ()
 	{
-		var dwal = ninja.dwal;//shortcut
-		//check if the dwal is healthy
-	
-		if( dwal === undefined )
-		{
-			alert("No wallet loaded!")
-			return;
-		}
-
-		var message = document.getElementById('mem_stealth_send').value;
+		var message = document.getElementById("secm_sendmssg").value;
+		var public_to = document.getElementById("sec_send_any_pubkey").value;
+		//decode base58 check if it is it, else hope for hex:
+		try{ public_to = Bitcoin.Base58.decode_check(public_to) }catch(err){}
 		var message_bytes = Crypto.charenc.UTF8.stringToBytes(message);
+
 		var pubpoint_k = new Bitcoin.ECKey(false);
-		pubpoint_k.setPub( dwal.m_parent_public );
+		pubpoint_k.setPub( public_to );
 		var crypted = Bitcoin.ECIES.encrypt_message( pubpoint_k.getPubPoint() , message_bytes );
 
+		var encrypted_message_b64;
 		if( crypted === undefined )
 		{
 			alert('Failed to encrypt message');
+			return;
+		}
+
+		//convert to b64
+		var setto = Crypto.util.bytesToBase64( crypted );
+		var newl = 0;
+		var encrypted_message_b64 = "";
+		while( newl < setto.length )
+		{
+			if( (newl + 65) < setto.length )
+			{
+				encrypted_message_b64 += setto.substring( newl, newl+65 );
+				encrypted_message_b64 += "\n";
+				newl += 65;
+			}
+			else
+			{
+				encrypted_message_b64 += setto.substring( newl );
+				encrypted_message_b64 += "\n";
+				break;
+			}
+		}
+		//encrypted_message_b64 is now what we need ti sign
+		//get hash of it
+		var wif_to_sign = document.getElementById('sec_tx_WIF').value;
+		var btcKey = new Bitcoin.ECKey(wif_to_sign);
+		var signa;
+		try
+		{	
+			signa = structured_sign(encrypted_message_b64, btcKey);
+		}
+		catch(err)
+		{
+			alert("failed to encrypt and sign:" + err.toString );
+		}
+		//now: put finished signature into output box
+		if( signa )
+		{
+			document.getElementById("secm_encrmessage").value = signa;
 		}
 		else
 		{
-			//convert to b64
-			var setto = Crypto.util.bytesToBase64( crypted );
-			var newl = 0;
-			var newld_setto = "";
-			while( newl < setto.length )
-			{
-				if( (newl + 65) < setto.length )
-				{
-					newld_setto += setto.substring( newl, newl+65 );
-					newld_setto += "\n";
-					newl += 65;
-				}
-				else
-				{
-					newld_setto += setto.substring( newl );
-					newld_setto += "\n";
-					break;
-				}
-			}
-			document.getElementById('mem_stealth_crypted').value = newld_setto;
-			
-			document.getElementById('mem_ecies_decr_but').innerHTML = "<b>Decrypt!</b>";
+			document.getElementById("secm_encrmessage").value = "";
 		}
 	},
 	
 	decrypt : function ()
 	{
-		var dwal = ninja.dwal;//shortcut
-		//check if the dwal is healthy
-	
-		if( dwal === undefined )
+		var signed_message = document.getElementById('secm_encrmessage').value;
+		//check signature
+		var checksigres = structured_verify( signed_message);
+		if(! checksigres[0] )
 		{
-			alert("No wallet loaded!")
-			return;
+			alert("Signature does not check out");
+			return false;
 		}
-		var crypted_message = document.getElementById('mem_stealth_crypted').value;
-		var crypted_message_bytes = Crypto.util.base64ToBytes(crypted_message);
+		var payload_message = checksigres[1];//should always be in base 64 format
+
+		//decrypt since signature checked out:
+		var crypted_message_bytes = Crypto.util.base64ToBytes(payload_message);
 		if( crypted_message_bytes === undefined )
 		{
 			alert("failed to base 64 decode base 64 message");
 			return;
 		}
 
-		var do_the_decrypt = function (  )
+		var decrypt_wif = document.getElementById('sec_rx_WIF').value;
+		var btcKey = new Bitcoin.ECKey(decrypt_wif);
+
+		var decrypted = Bitcoin.ECIES.decrypt_message( btcKey, crypted_message_bytes );
+
+		if( decrypted === undefined )
 		{
-			var root_secret_key = dwal.m_priv_key;
-
-			var decrypted = Bitcoin.ECIES.decrypt_message( root_secret_key, crypted_message_bytes );
-
-			if( decrypted === undefined )
-			{
-				alert('Failed to decrypt message:' + Bitcoin.ECIES.m_last_error );
-			}
-			else
-			{
-				//convert to b64
-				var setto = Crypto.charenc.UTF8.bytesToString( decrypted );
-				document.getElementById('mem_stealth_decrypted').value = setto;
-			}
-		};
-		ninja.DoUnlock( this, do_the_decrypt );
+			alert('Failed to decrypt message:' + Bitcoin.ECIES.m_last_error );
+		}
+		else
+		{
+			//convert to b64
+			var setto = Crypto.charenc.UTF8.bytesToString( decrypted );
+			document.getElementById('sec_decry').value = setto;
+		}
 	}
 
 };
