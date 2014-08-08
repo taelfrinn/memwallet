@@ -7371,8 +7371,13 @@ function msg_numToVarInt(i) {
     }
 }
 
-function msg_bytes(message) {
-    var b = Crypto.charenc.UTF8.stringToBytes(message);
+function msg_bytes(message)
+{
+    var b = message;
+	if( "string" == typeof b )
+	{
+		b = Crypto.charenc.UTF8.stringToBytes(b);
+	}
     return msg_numToVarInt(b.length).concat(b);
 }
 
@@ -7499,6 +7504,31 @@ function structured_sign( message, private_eckey )
 		return;
 
 	return makeSignedMessage(message, signingaddr, sig);
+};
+function bin_structured_sign( message, private_eckey )
+{
+	if ( !message || !private_eckey )
+		throw new Error( "invalid params to structured_sign" );
+
+	if( typeof message == "string" )
+	{
+    	message = Crypto.charenc.UTF8.stringToBytes(message);
+	}
+	var sig = sign_message( private_eckey, message );
+
+	if(!sig)
+		return;
+	//get bytes back from b64 sig
+	sig = Crypto.util.base64ToBytes(sig);
+	//get bytes back from b64 signingaddr
+	var signingaddr = private_eckey.getPubKeyHash();
+	signingaddr.unshift( 0x00 ); //prefix with network version
+
+	var sza = msg_numToVarInt( message.length );
+
+	// compact sz + msgbytes + senderaddr bytes + sig bytes
+	var ret = [].concat( sza, message, signingaddr, sig );
+	return ret;
 };
 function splitSignature(s)
 {
@@ -11307,11 +11337,23 @@ ninja.wallets.secure_messages = {
 		try{ public_to = Bitcoin.Base58.decode_check(public_to) }catch(err){}
 		var message_bytes = Crypto.charenc.UTF8.stringToBytes(message);
 
+		var wif_to_sign = document.getElementById('sec_tx_WIF').value;
+		var btcKey = new Bitcoin.ECKey(wif_to_sign);
+		var signed_messg_bytes;
+		try
+		{	
+			signed_messg_bytes = bin_structured_sign(message_bytes, btcKey);
+		}
+		catch(err)
+		{
+			alert("failed to encrypt and sign:" + err.toString );
+		}
+
 		var pubpoint_k = new Bitcoin.ECKey(false);
 		pubpoint_k.setPub( public_to );
-		var crypted = Bitcoin.ECIES.encrypt_message( pubpoint_k.getPubPoint() , message_bytes );
+		var crypted = Bitcoin.ECIES.encrypt_message( pubpoint_k.getPubPoint() , 
+				signed_messg_bytes );
 
-		var encrypted_message_b64;
 		if( crypted === undefined )
 		{
 			alert('Failed to encrypt message');
@@ -11337,23 +11379,10 @@ ninja.wallets.secure_messages = {
 				break;
 			}
 		}
-		//encrypted_message_b64 is now what we need ti sign
-		//get hash of it
-		var wif_to_sign = document.getElementById('sec_tx_WIF').value;
-		var btcKey = new Bitcoin.ECKey(wif_to_sign);
-		var signa;
-		try
-		{	
-			signa = structured_sign(encrypted_message_b64, btcKey);
-		}
-		catch(err)
-		{
-			alert("failed to encrypt and sign:" + err.toString );
-		}
 		//now: put finished signature into output box
-		if( signa )
+		if( encrypted_message_b64 )
 		{
-			document.getElementById("secm_encrmessage").value = signa;
+			document.getElementById("secm_encrmessage").value = encrypted_message_b64;
 		}
 		else
 		{
