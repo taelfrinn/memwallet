@@ -7388,7 +7388,9 @@ function msg_digest(message) {
 }
 function verify_message(signature, message ) {
     try {
-        var sig = Crypto.util.base64ToBytes(signature);
+        var sig = signature;
+		if( typeof sig == "string")
+			sig = Crypto.util.base64ToBytes(signature);
     } catch(err) {
 		alert( "sig not base 64");
         return false;
@@ -7604,6 +7606,48 @@ function structured_verify( signed_message )
 	alert("res = " + res.toString() + " \naddr = " + p.address.toString() );
 
 	return [ false, null ];
+}
+function msg_VarInttoLen(i)
+{
+    if (i[0] < 0xfd) {
+      return [ i[0], 1 ];
+    } else if (i[0] == 0xfd)
+	{
+      // can't use numToVarInt from bitcoinjs, BitcoinQT wants little endian here (!)
+      return [ (i[1] & 0xff) | (i[2] << 8 ), 3 ];
+    } else {
+        return [0,0]
+    }
+}
+function bin_structured_verify( decrypted_message_bytes )
+{
+	if( decrypted_message_bytes.length < 21 + 65 )
+	{
+		return [ false, "too short to be valid" ];
+	}
+
+	var lenret = msg_VarInttoLen( decrypted_message_bytes );
+	if( lenret[0] + lenret[1] + 65 + 21 != decrypted_message_bytes.length )
+	{
+		return [ false, "Invalid message Structure" ];
+	}
+	var len = lenret[0];
+	var skip = lenret[1];
+	var message_bytes = decrypted_message_bytes.slice( skip, skip+len);
+	var sender_addr = decrypted_message_bytes.slice( skip+len, skip+len+21 );
+	var signature = decrypted_message_bytes.slice( skip+len+21, skip+len+21+65 );
+
+	sender_addr = Bitcoin.Base58.encode_check( sender_addr );
+	var res = verify_message( signature, message_bytes );
+
+	if ( res && sender_addr ==res )
+	{
+		// export message part somehow
+		return [ true, message_bytes ];
+	}
+	alert("res = " + res + " \naddr = " + sender_addr );
+
+	return [ false, "Message signature invalid" ];
 }
 </script>
 	<script type="text/javascript">
@@ -11392,18 +11436,10 @@ ninja.wallets.secure_messages = {
 	
 	decrypt : function ()
 	{
-		var signed_message = document.getElementById('secm_encrmessage').value;
-		//check signature
-		var checksigres = structured_verify( signed_message);
-		if(! checksigres[0] )
-		{
-			alert("Signature does not check out");
-			return false;
-		}
-		var payload_message = checksigres[1];//should always be in base 64 format
+		var crypted_message = document.getElementById('secm_encrmessage').value;
 
 		//decrypt since signature checked out:
-		var crypted_message_bytes = Crypto.util.base64ToBytes(payload_message);
+		var crypted_message_bytes = Crypto.util.base64ToBytes(crypted_message);
 		if( crypted_message_bytes === undefined )
 		{
 			alert("failed to base 64 decode base 64 message");
@@ -11418,13 +11454,19 @@ ninja.wallets.secure_messages = {
 		if( decrypted === undefined )
 		{
 			alert('Failed to decrypt message:' + Bitcoin.ECIES.m_last_error );
+			return false;
 		}
-		else
+
+		//check signature
+		var checksigres = bin_structured_verify( decrypted );
+		if(! checksigres[0] )
 		{
-			//convert to b64
-			var setto = Crypto.charenc.UTF8.bytesToString( decrypted );
-			document.getElementById('sec_decry').value = setto;
+			alert("Signature does not check out: " + checksigres[1]);
+			return false;
 		}
+		var payload_message = Crypto.charenc.UTF8.bytesToString(checksigres[1]);
+
+		document.getElementById('sec_decry').value = payload_message;
 	}
 
 };
