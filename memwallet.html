@@ -7623,13 +7623,13 @@ function bin_structured_verify( decrypted_message_bytes )
 {
 	if( decrypted_message_bytes.length < 21 + 65 )
 	{
-		return [ false, "too short to be valid" ];
+		return [ false, "too short to be valid", null ];
 	}
 
 	var lenret = msg_VarInttoLen( decrypted_message_bytes );
 	if( lenret[0] + lenret[1] + 65 + 21 != decrypted_message_bytes.length )
 	{
-		return [ false, "Invalid message Structure" ];
+		return [ false, "Invalid message Structure", null ];
 	}
 	var len = lenret[0];
 	var skip = lenret[1];
@@ -7643,11 +7643,11 @@ function bin_structured_verify( decrypted_message_bytes )
 	if ( res && sender_addr ==res )
 	{
 		// export message part somehow
-		return [ true, message_bytes ];
+		return [ true, message_bytes, sender_addr ];
 	}
 	alert("res = " + res + " \naddr = " + sender_addr );
 
-	return [ false, "Message signature invalid" ];
+	return [ false, "Message signature invalid", null ];
 }
 </script>
 	<script type="text/javascript">
@@ -9180,7 +9180,7 @@ body { font-family: Arial; }
 							onclick="ninja.wallets.secure_messages.decrypt();" /></span>
 				</div>
 				<div class="row extra">
-					<span class="label">Decrypted Message</span>
+					<span class="label" id="secm_Decrypt_Message" >Decrypted Message</span>
 				</div>
 				<div class="row extra">
 					<textarea rows="11" cols="80" id="sec_decry"></textarea>
@@ -11467,6 +11467,8 @@ ninja.wallets.secure_messages = {
 		var payload_message = Crypto.charenc.UTF8.bytesToString(checksigres[1]);
 
 		document.getElementById('sec_decry').value = payload_message;
+		document.getElementById('secm_Decrypt_Message').innerHTML="Decrypted Message From <b>" 
+			+ checksigres[2] + "</b>";
 	}
 
 };
