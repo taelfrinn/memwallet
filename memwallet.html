@@ -11406,15 +11406,15 @@ ninja.wallets.secure_messages = {
 
 		//convert to b64
 		var setto = Crypto.util.bytesToBase64( crypted );
-		var newl = 0;
+		var newl = 0;var wrapat=80;
 		var encrypted_message_b64 = "";
 		while( newl < setto.length )
 		{
-			if( (newl + 65) < setto.length )
+			if( (newl + wrapat) < setto.length )
 			{
 				encrypted_message_b64 += setto.substring( newl, newl+65 );
 				encrypted_message_b64 += "\n";
-				newl += 65;
+				newl += wrapat;
 			}
 			else
 			{
