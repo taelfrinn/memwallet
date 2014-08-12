@@ -7290,12 +7290,14 @@ Bitcoin.ECIES =
 		}
 		//KDF - aes_key and hmac_key
 //alert( "shared_secr, = " + Crypto.util.bytesToHex( shared_secret.getEncoded(1)   ) );
-			var tohash = ByteEnc.ToWords(shared_secret.getEncoded(1));
-			var hash_words = CryptoJS.SHA512( tohash, { asBytes: true } );
-			var keying_data = ByteEnc.FromWords( hash_words );
+		var tohash = shared_secret.getEncoded(1);
+		var salt = Crypto.charenc.UTF8.stringToBytes("Bitcoin Secure Message").concat(nonce_ecpub_bytes);
+		var PBKDF2_opts = { iterations: 2048, hasher: Crypto.SHA256, asBytes: true };
+		var keying_data = Crypto.PBKDF2( tohash, salt, 80, PBKDF2_opts );
+
+		var aes_iv = keying_data.slice(64,80);
 		var hmac_key = keying_data.slice(32,64);
 		var aes_key = keying_data.slice(0,32);
-		var aes_iv = nonce_ecpub_bytes.slice(17,33);
 //alert( "aes_iv, = " + Crypto.util.bytesToHex( aes_iv ) );
 //alert( "aes_key, = " + Crypto.util.bytesToHex( aes_key ) );
 //alert( "hmac_key, = " + Crypto.util.bytesToHex( hmac_key ) );
@@ -7320,7 +7322,6 @@ Bitcoin.ECIES =
 			return undefined;
 		}
 		var nonce_pubkey = message_bytes.slice(0,33);
-		var aes_iv = message_bytes.slice(17,33);
 		var crypted_payload = message_bytes.slice(33, -8);
 		var hmac_val = message_bytes.slice(-8);
 		//S = EC_POINT_mul ( not by group, but my_priv * Nonce Pubkey )
@@ -7334,11 +7335,15 @@ Bitcoin.ECIES =
 			return undefined;
 		}
 		//KDF - aes_key and hmac_key
-			var tohash = ByteEnc.ToWords(shared_secret.getEncoded(1));
-			var hash_words = CryptoJS.SHA512( tohash, { asBytes: true } );
-			var keying_data = ByteEnc.FromWords( hash_words );
+		var tohash = shared_secret.getEncoded(1);
+		var salt = Crypto.charenc.UTF8.stringToBytes("Bitcoin Secure Message").concat(nonce_pubkey);
+		var PBKDF2_opts = { iterations: 2048, hasher: Crypto.SHA256, asBytes: true };
+		var keying_data = Crypto.PBKDF2( tohash, salt, 80, PBKDF2_opts );
+
+		var aes_iv = keying_data.slice(64,80);
 		var hmac_key = keying_data.slice(32,64);
 		var aes_key = keying_data.slice(0,32);
+
 		//validate digest is 8 bytes of HMAC-SHA256( key = hmac key, crypted message )
 		var hmac_8 = Crypto.HMAC( Crypto.SHA256, crypted_payload, hmac_key, { asBytes: true } );
 		hmac_8 = hmac_8.slice(0,8);
