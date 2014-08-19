@@ -7474,7 +7474,9 @@ function sign_message(private_key, message )
         sequence[0] = nV;
         var sig = Crypto.util.bytesToBase64(sequence);
         if (verify_message(sig, message ) == address)
+		{
             return sig;
+		}
     }
 
     throw new Error("Could not encode a signature");
@@ -7514,27 +7516,37 @@ function structured_sign( message, private_eckey )
 };
 function bin_structured_sign( message, private_eckey )
 {
-	if ( !message || !private_eckey )
+	if ( !message )
 		throw new Error( "invalid params to structured_sign" );
 
 	if( typeof message == "string" )
 	{
     	message = Crypto.charenc.UTF8.stringToBytes(message);
 	}
-	var sig = sign_message( private_eckey, message );
 
-	if(!sig)
-		return;
-	//get bytes back from b64 sig
-	sig = Crypto.util.base64ToBytes(sig);
-	//get bytes back from b64 signingaddr
-	var signingaddr = private_eckey.getPubKeyHash();
-	signingaddr.unshift( 0x00 ); //prefix with network version
+	var prefix = [ 0x00 ];
+	var sig = [];
+	var signingaddr = [];
+	if( private_eckey )
+	{
+		prefix[0] = 0x01;
+		sig = sign_message( private_eckey, message );
+		if(!sig )
+			throw new Error("Failed to sign, got empty signature");
+		//get bytes back from b64 sig
+		sig = Crypto.util.base64ToBytes(sig);
+
+		if( sig.length != 65 )
+			throw new Error("unexpected sig length");
+		//get bytes back from b64 signingaddr
+		signingaddr = private_eckey.getPubKeyHash();
+		signingaddr.unshift( 0x00 ); //prefix with network version
+	}
 
 	var sza = msg_numToVarInt( message.length );
 
 	// compact sz + msgbytes + senderaddr bytes + sig bytes
-	var ret = [].concat( sza, message, signingaddr, sig );
+	var ret = prefix.concat( sza, message, signingaddr, sig );
 	return ret;
 };
 function splitSignature(s)
@@ -7626,33 +7638,51 @@ function msg_VarInttoLen(i)
 }
 function bin_structured_verify( decrypted_message_bytes )
 {
-	if( decrypted_message_bytes.length < 21 + 65 )
+	if( decrypted_message_bytes.length < 2 )
+	{
+		return [ false, "too short to be valid", null ];
+	}
+	var is_signed = decrypted_message_bytes.shift();
+	if( is_signed != 0x00 && is_signed != 0x01 )
+	{
+		return [ false, "invalid header byte " . is_signed , null ];
+	}
+	var reqtra=0;
+	if( is_signed )
+	{
+		reqtra = 21 + 65;
+	}
+	if( decrypted_message_bytes.length <= reqtra )
 	{
 		return [ false, "too short to be valid", null ];
 	}
 
 	var lenret = msg_VarInttoLen( decrypted_message_bytes );
-	if( lenret[0] + lenret[1] + 65 + 21 != decrypted_message_bytes.length )
+	if( lenret[0] + lenret[1] + reqtra != decrypted_message_bytes.length )
 	{
 		return [ false, "Invalid message Structure", null ];
 	}
 	var len = lenret[0];
 	var skip = lenret[1];
 	var message_bytes = decrypted_message_bytes.slice( skip, skip+len);
-	var sender_addr = decrypted_message_bytes.slice( skip+len, skip+len+21 );
-	var signature = decrypted_message_bytes.slice( skip+len+21, skip+len+21+65 );
-
-	sender_addr = Bitcoin.Base58.encode_check( sender_addr );
-	var res = verify_message( signature, message_bytes );
-
-	if ( res && sender_addr ==res )
+	if( is_signed )
 	{
-		// export message part somehow
-		return [ true, message_bytes, sender_addr ];
-	}
-	alert("res = " + res + " \naddr = " + sender_addr );
+		var sender_addr = decrypted_message_bytes.slice( skip+len, skip+len+21 );
+		var signature = decrypted_message_bytes.slice( skip+len+21, skip+len+21+65 );
 
-	return [ false, "Message signature invalid", null ];
+		sender_addr = Bitcoin.Base58.encode_check( sender_addr );
+		var res = verify_message( signature, message_bytes );
+
+		if ( res && sender_addr ==res )
+		{
+			// export message part somehow
+			return [ true, message_bytes, sender_addr ];
+		}
+		alert("res = " + res + " \naddr = " + sender_addr );
+
+		return [ false, "Message signature invalid", null ];
+	}
+	return [ true, message_bytes, null ];
 }
 </script>
 	<script type="text/javascript">
@@ -11387,7 +11417,12 @@ ninja.wallets.secure_messages = {
 		var message_bytes = Crypto.charenc.UTF8.stringToBytes(message);
 
 		var wif_to_sign = document.getElementById('sec_tx_WIF').value;
-		var btcKey = new Bitcoin.ECKey(wif_to_sign);
+		
+		var btcKey = undefined;
+		if( wif_to_sign.length > 0 )
+		{
+			btcKey = new Bitcoin.ECKey(wif_to_sign);
+		}
 		var signed_messg_bytes;
 		try
 		{	
@@ -11395,7 +11430,8 @@ ninja.wallets.secure_messages = {
 		}
 		catch(err)
 		{
-			alert("failed to encrypt and sign:" + err.toString );
+			alert("failed to encrypt and sign:" + err + err.toString );
+			return;
 		}
 
 		var pubpoint_k = new Bitcoin.ECKey(false);
@@ -11472,8 +11508,15 @@ ninja.wallets.secure_messages = {
 		var payload_message = Crypto.charenc.UTF8.bytesToString(checksigres[1]);
 
 		document.getElementById('sec_decry').value = payload_message;
-		document.getElementById('secm_Decrypt_Message').innerHTML="Decrypted Message From <b>" 
-			+ checksigres[2] + "</b>";
+		if( checksigres[2] )
+		{
+			document.getElementById('secm_Decrypt_Message').innerHTML="Decrypted Message From <b>" 
+				+ checksigres[2] + "</b>";
+		}
+		else
+		{
+			document.getElementById('secm_Decrypt_Message').innerHTML="Decrypted Message From Unknown - Message not Signed!";
+		}
 	}
 
 };
