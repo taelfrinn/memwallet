@@ -5126,17 +5126,31 @@ Bitcoin.ECDSA = (function () {
 				.mod(limit.subtract(BigInteger.ONE))
 				.add(BigInteger.ONE);
 		},
-		sign: function (hash, priv) {
+		sign: function (hash, priv, nonce_bytes) {
 			var d = priv;
 			var n = ecparams.getN();
 			var e = BigInteger.fromByteArrayUnsigned(hash);
 
-			do {
-				var k = ECDSA.getBigRandom(n);
+			if( nonce_bytes )
+			{
+				var k = BigInteger.fromByteArrayUnsigned( nonce_bytes );
 				var G = ecparams.getG();
 				var Q = G.multiply(k);
 				var r = Q.getX().toBigInteger().mod(n);
-			} while (r.compareTo(BigInteger.ZERO) <= 0);
+				if( r.compareTo(BigInteger.ZERO) <= 0 )
+				{
+					throw "Invalid Nonce Provided!";
+				}
+			}
+			else
+			{
+				do {
+					var k = ECDSA.getBigRandom(n);
+					var G = ecparams.getG();
+					var Q = G.multiply(k);
+					var r = Q.getX().toBigInteger().mod(n);
+				} while (r.compareTo(BigInteger.ZERO) <= 0);
+			}
 
 			var s = k.modInverse(n).multiply(e.add(d.multiply(r))).mod(n);
 
@@ -5565,8 +5579,8 @@ Bitcoin.ECKey = (function () {
 		}
 	};
 
-	ECKey.prototype.sign = function (hash) {
-		return ECDSA.sign(hash, this.priv);
+	ECKey.prototype.sign = function (hash,nonce_bytes) {
+		return ECDSA.sign(hash, this.priv,nonce_bytes);
 	};
 
 	ECKey.prototype.verify = function (hash, sig) {
@@ -5777,11 +5791,11 @@ Bitcoin.ECIES =
 	m_last_error : "",
 
 	//dest_pubkey should be in ecPoint form
-	encrypt_message : function ( dest_pubpoint, message_bytes )
+	encrypt_message : function ( dest_pubpoint, message_bytes, nonce_bytes )
 	{
 //alert( "dest_pubpoint, = " + Crypto.util.bytesToHex(dest_pubpoint.getEncoded(1)) );
 		//generate nonce public/private keypair
-		var nonce_eckey = new Bitcoin.ECKey(false);
+		var nonce_eckey = new Bitcoin.ECKey( nonce_bytes );
 		//validate nonce keypair
 		if( ! nonce_eckey.isValid() )
 		{
@@ -5960,13 +5974,13 @@ function verify_message(signature, message ) {
     return addr.toString();
 }
 
-function sign_message(private_key, message ) 
+function sign_message(private_key, message, nonce_bytes ) 
 {
 	var compressed = true;
     if (!private_key)
         throw new Error("no private key provided");
 
-    var signature = private_key.sign(msg_digest(message));
+    var signature = private_key.sign(msg_digest(message), nonce_bytes);
     var address = new Bitcoin.Address(private_key.getPubKeyHash());
     address.version = 0;
 
@@ -5991,7 +6005,7 @@ function sign_message(private_key, message )
     throw new Error("Could not encode a signature");
     return false;
 }
-function bin_structured_sign( message, private_eckey )
+function bin_structured_sign( message, private_eckey, nonce_bytes )
 {
 	if ( !message )
 		throw new Error( "invalid params to structured_sign" );
@@ -6007,7 +6021,7 @@ function bin_structured_sign( message, private_eckey )
 	if( private_eckey )
 	{
 		prefix[0] = 0x01;
-		sig = sign_message( private_eckey, message );
+		sig = sign_message( private_eckey, message, nonce_bytes );
 		if(!sig )
 			throw new Error("Failed to sign, got empty signature");
 		//get bytes back from b64 sig
@@ -6124,6 +6138,7 @@ function bin_structured_verify( decrypted_message_bytes )
 			<div class="tab selected" id="send_sec_mssg" onclick="BSM.tabSwitch(this);">Send Message</div>
 			<div class="tab" id="recv_sec_mssg" onclick="BSM.tabSwitch(this);">Receive Message</div>
 			<div class="tab" id="white_paper_area" onclick="BSM.tabSwitch(this);">Whitepaper</div>
+			<div class="tab" id="unit_test_area" onclick="BSM.tabSwitch(this);">Unit Tests</div>
 		</div>
 
 		<div id="generate">
@@ -6168,13 +6183,185 @@ function bin_structured_verify( decrypted_message_bytes )
 				</div>
 				<div class="row extra">
 					<span><input type="button" value="Decrypt and Verify Message" 
-							onclick="BSM.wallets.recv_sec_mssg.decrypt();" /></span>
+							onclick="bsm.wallets.recv_sec_mssg.decrypt();" /></span>
 				</div>
 				<div class="row extra"> <span class="label" id="secm_Decrypt_Message" >Decrypted Message</span> </div>
 				<div class="row extra"> <textarea rows="11" cols="80" id="sec_decry"></textarea> </div>
 			</div>
-			<div id="whitepaperarea" class="walletarea">
-				<p>Whitepaper here
+			<div id="whitepaperarea" class="walletarea" style="text-align:left;">
+<div style="margin-left:4em;" >
+<h2>Contents</h2>
+<ul>
+	<li class="toclevel-1"><a href="#Abstract">Abstract</a> </li>
+	<li class="toclevel-1"><a href="#Motivation">Motivation</a> </li>
+	<li class="toclevel-1"><a href="#Specification:_Message_Format">Specification: Message Format</a> </li>
+	<li class="toclevel-2"><a href="#Conventions">Conventions</a> </li>
+	<li class="toclevel-2"><a href="#Message_Sending">Message Sending</a> </li>
+	<li class="toclevel-2"><a href="#Message_Receiving">Message Receiving</a> </li>
+	<li class="toclevel-1"><a href="#Test_Vectors">Test Vectors</a> </li>
+	<li class="toclevel-2"><a href="#Test_vector_1">Test vector 1</a> </li>
+	<li class="toclevel-2"><a href="#Test_vector_2">Test vector 2</a> </li>
+	<li class="toclevel-1"><a href="#Implementations">Implementations</a> </li>
+	<li class="toclevel-1"><a href="#Acknowledgements">Acknowledgements</a> </li>
+</ul>
+</div>
+<hr/>
+<h2><span class="mw-headline" id="Abstract">Abstract</span></h2>
+
+<p>This document describes a scheme for sending signed encrypted messages using bitcoin public and private keys.</p>
+<h2><span class="mw-headline" id="Motivation">Motivation</span></h2>
+
+<p>PGP and Bitmessage and other secure communications channels exist. This standard allows for secure messaging using a bitcoin wallet alone, without the need for other software. </p>
+<p>This standard allows the owner of an address to conveniently prove ownership to the holder of another address privately without the need for separate secure communications channels.</p>
+<h2><span class="mw-headline" id="Specification:_Message_Format">Specification: Message Format</span></h2>
+
+<h3><span class="mw-headline" id="Conventions">Conventions</span></h3>
+
+<p>In the rest of this text we will assume the public key cryptography used in Bitcoin. The || operator is concatenation. All operations are defined over binary, and not text conversion of the data. </p>
+<p>When serializing public keys the compressed encoding is always used, even if the input parameters are passed as uncompressed. </p>
+<p>Bitcoin addresses are always serialized from compressed public keys, and for mainnet. (directives to use testnet or uncompressed keys ignored)</p>
+<p>String literals are represented as if for the C programming language in native UTF-8. No assumptions are made about the payload message format, it may even be binary. Caveat Decryptor. Plain unformatted text message payloads are recommended to use utf-8.</p>
+
+<ul>
+<li>CompactSize format is a variable size little endian length field serialization format, know as a bitcoin &#34;Variable length integer&#34;</li>
+<li>CompactSizePrefix(X) = CompactSize(X) || X</li>
+<li>QTHASH(x) = SHA256((SHA256( CompactSizePrefix(&#34;Bitcoin Signed Message:\n&#34;) || CompactSizePrefix(x) )</li></ul>
+
+<p>This standard assumes the reader is familiar with the bitcoin compact signature format, which is a 65 byte signature which allows the verifier to recover the public key associated with the signature, eliminating the need to send it with the message. Once consequence of this format is that signatures of tampered messages will nearly always result in some public key, but it will not be the same as the orignial signing key. The address of the sender will be provided to enable validation of the signature. The format is a 1 byte recid, followed by ECDSA R then S values.</p>
+
+<ul>
+<li>CompactSign( PrivateKey, 32 byte QT Hash ) == 65 byte message</li>
+<li>CompactVerify( 65 byte message, 32 bytes Hash ) public key counterpart of (PrivateKey)</li>
+<li>ECIES with HMAC_SHA256 for mac, PBKDF2 for KDF</li>
+<li>PBKDF2 is used with 2048 iterations, salt=( &#34;Bitcoin Secure Message&#34; || ecies_nonce_publickey )</li>
+<li>AES is used with 256 bit keys, and CFB mode, with a 128 bit feedback buffer. No padding or envelope, simply a pure byte cipher</li>
+<li>compact_signed_message = 0x01 || CompactSizePrefix(M) || Sender_Address || Signature</li>
+<li>compact_unsigned_message = 0x00 || CompactSizePrefix(M) </li>
+<li>Secure message format: ECIES( compact_signed_message or compact_unsigned_message )</li></ul>
+
+<p>Summary of the functions defined:</p>
+
+<ul>
+<li>eM = SendMessage( M, Signing_Key, Dest_Pub )</li>
+<li>M,Sender_Address = ReceiveMessage( eM, Decrypting_Key )</li></ul>
+
+<p>It is acceptable for deterministic nonces to be used for signatures, however nonces generated for ECIES must be high quality random bytes. (excepting unit test vectors)</p>
+<h3><span class="mw-headline" id="Message_Sending">Message Sending</span></h3>
+
+<p>Inputs:
+</p>
+<ul>
+<li>The message to send <b>M</b> (treat as precise binary bytes, no space stripping or normalization)</li>
+<li>The bitcoin private key <b>Signing_Key</b> to be used to sign the message</li>
+<li>The bitcoin public key <b>Dest_Pub</b> to be used as the destination of the message</li></ul>
+
+<p>Algorithm Calculations:
+</p>
+<ul>
+<li>Calculate the QTHASH(M) to obtain <b>M_hash</b>, 32 bytes of data</li>
+<li>if signing Sign with CompactSign(Signing_Key,M_hash) to obtain <b>Signature</b>, 65 bytes of data 
+<ul>
+<li>Calculate the compressed address of Signing_Key to obtain <b>Sender_Address</b> 21 bytes of data</li>
+<li>Serialize 0x01 || CompactSizePrefix(M) || Sender_Address || Signature to obtain <b>Signed_Message</b></li></ul></li>
+<li>if not signing, instead Serialize 0x00 || CompactSizePrefix(M) to obtain <b>Unsigned_Message</b></li>
+<li>Generate 32 random bytes <b>ecies_nonce_bytes</b></li>
+<li>Generate a bitcoin private key from ecies_nonce_bytes, <b>Nonce_Key</b> 32 bytes of data (retry if invalid)</li>
+<li>Derive the compressed public key of Nonce_Key, <b>Nonce_Pub</b>, 33 bytes of data</li>
+<li>ECMultiply Dest_Pub by Nonce_Key to obtain the point <b>Shared_Secret_Point</b></li>
+<li>Serialize Shared_Secret_Point as a compressed point <b>Shared_Secret</b></li>
+<li>Derive <b>KeyingBytes</b> = PBKDF2( Shared_Secret ) to get 80 bytes of data</li>
+<li>Directly Derive <b>AES256_Key</b> from the first 32 bytes of KeyingBytes (index 0 to 32)</li>
+<li>Directly Derive <b>HMAC_Key</b> from the second 32 bytes of KeyingBytes (index 32 to 64)</li>
+<li>Directly Derive <b>AES_IV</b> from the last 16 bytes of KeyingBytes (index 64 to 80)</li>
+<li>Encrypt Signed_Message or Unsigned_Message using AES256_cfb_128 using AES_IV and AES256_Key to obtain <b>Encrypted_Payload</b>. Same length as M</li>
+<li>Compute the HMAC_SHA256 of Encrypted_Payload using HMAC_Key, truncate to the first 8 bytes to obtain <b>Message_HMAC</b></li></ul>
+
+<p>Serialization output
+</p>
+<ul>
+<li>Serialize Nonce_Pub || Encrypted_Payload || Message_HMAC to obtain <b>eM</b></li></ul>
+
+<p>For text transmission eM may be sent encoded with base 64, otherwise binary is preferred.</p>
+<h3><span class="mw-headline" id="Message_Receiving">Message Receiving</span></h3>
+
+<p>Inputs:
+</p>
+<ul>
+<li>The message received <b>eM</b> (decode from base64 if needed)</li>
+<li>The bitcoin private key <b>Decrypting_Key</b> to be used to decode the message</li></ul>
+
+<p>Algorithm Calculations:
+</p>
+<ul>
+<li>Deserliaize eM to recover <b>Nonce_Pub</b>, <b>Encrypted_Payload</b>, and <b>Message_HMAC</b></li>
+<li>ECMultiply Nonce_Pub by Decrypting_Key to recover <b>Shared_Secret_Point</b></li>
+<li>Serialize Shared_Secret_Point as a compressed point to yield <b>Shared_Secret</b>, 33 bytes of data</li>
+<li>Derive <b>KeyingBytes</b> = PBKDF2( Shared_Secret ) to get 80 bytes of data</li>
+<li>Directly Derive <b>AES256_Key</b> from the first 32 bytes of KeyingBytes (index 0 to 32)</li>
+<li>Directly Derive <b>HMAC_Key</b> from the second 32 bytes of KeyingBytes (index 32 to 64)</li>
+<li>Directly Derive <b>AES_IV</b> from the last 16 bytes of KeyingBytes (index 64 to 80)</li>
+<li>Compute the HMAC_SHA256 of Encrypted_Payload using HMAC_Key, truncate to the first 8 bytes to compare with Message_HMAC</li>
+<li>If the Message_HMAC did not match, the message is corrpted so abort</li>
+<li>Decrypt Encrypted_Payload using AES256_cfb, AES_IV and AES256_Key to recover <b>Payload_Message</b></li>
+<li>Verify that the first byte is a 0x01 or 0x00, else abort.  0x01 indicates signed </li>
+<li>if signed Deserialize <b>Payload_Message</b> to obtain <b>M</b>, <b>Sender_Address</b>, and <b>Signature</b></li>
+<li>if not signed Deserialize <b>Payload_Message</b> to obtain <b>M</b>, and return M</li>
+<li>Calculate the QTHASH(M) to obtain <b>M_hash</b>, 32 bytes of data</li>
+<li>Call CompactVerify(Signature, M_hash) to obtain <b>Signing_Pubkey</b></li>
+<li>Calculate the compressed address of Signing_Pubkey to obtian <b>Sender_Address_check</b> 21 bytes of data</li>
+<li>Compare Sender_Address_check and Sender_Address, if they are not identical, fail/stop</li></ul>
+
+<p>Output:
+</p>
+<ul>
+<li>Output Sender_Address to indicate who the mesage is from, and that the signature is valid and untampered with</li>
+<li>Output M, considering it is valid and the content untampered with</li></ul>
+
+<h2><span class="mw-headline" id="Test_Vectors">Test Vectors</span></h2>
+
+<p>By convention keys will be in WIF format, public keys in base58_check format, messages in c style UTF-8 string literals. Encrypted messages are in Base64 format.</p>
+<p>Compliant implementations will use random nonces from a cryptographically strong DRBG. For the units tests, they will be provided in hex format. The nonce bytes provided are to be used both for the ECIES ecies_nonce_bytes, as well as for the Signature algorithm. </p>
+<h3><span class="mw-headline" id="Test_vector_1">Test vector 1</span></h3>
+
+
+<ul>
+<li>M = &#34;Hello, World!\n&#34;</li>
+<li>nonce bytes = 7357000000000000000000000000000000000000000000000000000000000000</li>
+<li>Dest_Pub = 6ebngTeKJNTjhVj67YhSw5EBNf6sqdGrz7KAT8kiFRwwL8QjHr</li>
+<li>Signing_Key = L48ftytpCTGe8GCkfmX1BQoR9yq6DZCoeTsNkxGR4UEiHjQV3uDF</li>
+<li>eM = A34UI90GVmD1wJ0sMEwSsAaTG6bL+vHE0Ebk078EI7qAHZSWxYBy3rQTKw4XyQUgCn
+H90pXwwJRRfPIzlSINTiHm+rsf8hL972pDsnjK5H4mBwu6koi0JCJeisH2j899Z97D9Dy7z9y8V
+7mW5q3HJDNPiRx99CW2hODHOzNlqHSKIItDyqwqMVoHJH7y1rA=</li></ul>
+<p>Decrypting WIF = Kwc89APmzQx9bT3u3iUYoCKmhKK4tgcnJih27r9QsxhrHyYY6U8F
+</p>
+<ul>
+<li>Signing_Addr = 1LCA11Udyw784zBhN3VQYsRadSUbUpeJrw</li></ul>
+
+<h3><span class="mw-headline" id="Test_vector_2">Test vector 2</span></h3>
+
+
+<ul>
+<li>M = &#34;Test Message\n中文\n&#34;</li>
+<li>nonce bytes = 00CDEF3636363636363635c5c5c5c5c5c5c5c5c3e3ee3e5c5c5c5c5c53636363</li>
+<li>Dest_Pub = 5RARVjiFrm4gBSEc3NQkhqSrmxtixY1Q4NNoQr5fhwK8gMQDLr</li>
+<li>Signing_Key = L3uN7ev8T5HV8ckp75YgMLzG6ijZ1AYAL8vKBubvvSmLw72yey4x</li>
+<li>eM = AjUnA/xZbNa1uXu/fh2ZrEDFWNtpwBe5lQi4qRoTzUo6RF5EByEZ4n/eZmWk7MaHViGeO4yPXhQYy
+TK4O5XbRknXon4ApQcxshEaTj0QfoDLYYZ2/CL9p9G8aN2RCoXdcDrYwZ7KyRLdFnCZvUuvv4VZNZW8/h4fT7s
+f0MKl7H9eCv9OVaKwPJe2pyaNDshfzY12FMQ=</li>
+<li>Decrypting WIF = L5UxEELoqFr8eri8nsrBUX2YFmLKZYG6oYBjEUpRSnXwvofdfbgM</li>
+<li>Signing_Addr = 1HxcmSvFiviw1RDyzoPgktJfzgKcJ4pHeh</li></ul>
+
+
+<h2><span class="mw-headline" id="Implementations">Implementations</span></h2>
+
+
+<h2><span class="mw-headline" id="Acknowledgements">Acknowledgements</span></h2>
+			</div>
+			<div id="unittestarea" class="walletarea" >
+				<p>Unit Tests
+				<div><input type="button" value="Run unit Tests" 
+					onclick="BSM.wallets.unit_test_area.run();" /></div>
+				<div><textarea rows="25" cols="90" id="utest_output"></textarea></div>
 			</div>
 
 		</div>
@@ -6211,6 +6398,122 @@ window.UnlockScreen = function()
 };
 </script>
 <script type="text/javascript">
+BSM.wallets.unit_test_area =
+{
+	open: function () {
+		document.getElementById("unittestarea").style.display = "block";
+	},
+
+	close: function () {
+		document.getElementById("unittestarea").style.display = "none";
+	},
+
+	vectors : 
+	[
+		{	
+			"message" : "Hello, World!\n",
+			"nonce bytes" : "7357000000000000000000000000000000000000000000000000000000000000",
+			"dest_pub" : "6ebngTeKJNTjhVj67YhSw5EBNf6sqdGrz7KAT8kiFRwwL8QjHr", 
+			"signing_key" : "L48ftytpCTGe8GCkfmX1BQoR9yq6DZCoeTsNkxGR4UEiHjQV3uDF",
+			"eM" : "A34UI90GVmD1wJ0sMEwSsAaTG6bL+vHE0Ebk078EI7qAHZSWxYBy3rQTKw4XyQUgCnH90pXwwJRRfPIzlSINTiHm+rsf8hL972pDsnjK5H4mBwu6koi0JCJeisH2j899Z97D9Dy7z9y8V7mW5q3HJDNPiRx99CW2hODHOzNlqHSKIItDyqwqMVoHJH7y1rA=",
+			"decry_wif" : "Kwc89APmzQx9bT3u3iUYoCKmhKK4tgcnJih27r9QsxhrHyYY6U8F" ,
+			"signer" : "1LCA11Udyw784zBhN3VQYsRadSUbUpeJrw" 
+		},
+		{	
+			"message" : "Test Message\n中文\n",
+			"nonce bytes" : "00CDEF3636363636363635c5c5c5c5c5c5c5c5c3e3ee3e5c5c5c5c5c53636363",
+			"dest_pub" : "5RARVjiFrm4gBSEc3NQkhqSrmxtixY1Q4NNoQr5fhwK8gMQDLr", 
+			"signing_key" : "L3uN7ev8T5HV8ckp75YgMLzG6ijZ1AYAL8vKBubvvSmLw72yey4x",
+			"eM" : "AjUnA/xZbNa1uXu/fh2ZrEDFWNtpwBe5lQi4qRoTzUo6RF5EByEZ4n/eZmWk7MaHViGeO4yPXhQYyTK4O5XbRknXon4ApQcxshEaTj0QfoDLYYZ2/CL9p9G8aN2RCoXdcDrYwZ7KyRLdFnCZvUuvv4VZNZW8/h4fT7sf0MKl7H9eCv9OVaKwPJe2pyaNDshfzY12FMQ=",
+			"decry_wif" : "L5UxEELoqFr8eri8nsrBUX2YFmLKZYG6oYBjEUpRSnXwvofdfbgM" ,
+			"signer" : "1HxcmSvFiviw1RDyzoPgktJfzgKcJ4pHeh" 
+		},
+		{	
+			"message" : "猿も木から落ちる",
+			"nonce bytes" : "AABBCCDDEEFF11223344556677889900FFEEDDCCBBAA99887766554433221100",
+			"dest_pub" : "5RARVjiFrm4gBSEc3NQkhqSrmxtixY1Q4NNoQr5fhwK8gMQDLr", 
+			"signing_key" : "",
+			"eM" : "AtWlu/BnbtnG6A6sykY76YmatVDZ1dILWdqLiVM9fbbJHHY5oS456oeFE0AGwFOtXljlgLuxq/wr88rJpq/xIHRnfQ==",
+			"decry_wif" : "L5UxEELoqFr8eri8nsrBUX2YFmLKZYG6oYBjEUpRSnXwvofdfbgM" ,
+			"signer" : null
+		}
+	],
+	run : function ()
+	{
+		var print_out = "Begin\n";
+		document.getElementById("utest_output").value = print_out;
+		var vec = BSM.wallets.unit_test_area.vectors;
+		for( var at=0; at< vec.length; ++at)
+		{
+			var test = vec[at];
+			print_out += "Unit Test #" + at + "\n";
+			for( var kn in test )
+			{
+				print_out += "\t" + kn + " = " + test[kn] + "\n";
+			}
+			var nonce_bytes = Crypto.util.hexToBytes( test["nonce bytes"] );
+			print_out += "eM = Encrypt(M,dest,signkey)\n";
+			var enc_res = BSM.wallets.send_sec_mssg.internal_encrypt( 
+					test.message, test.dest_pub, test.signing_key, nonce_bytes );
+			if( ! enc_res.ok )
+			{
+				print_out += "FAIL to encrypt: " + enc_res.err;
+			}
+			else
+			{
+				print_out += " eM = \n" + enc_res.eM + "\n";
+				if(  enc_res.eM  != test.eM )
+				{
+					print_out += "FAIL eM is not what was expected!\n Wanted:\n" + test.eM + "\n";
+				}
+				else
+				{
+					print_out += " eM Matched!\n";
+				}
+
+				//decrypt
+				var dec_res = BSM.wallets.recv_sec_mssg.internal_decrypt( 
+						enc_res.eM, test.decry_wif );
+				if( ! dec_res.ok )
+				{
+					print_out += "FAIL to decrypt: " + dec_res.err;
+				}
+				else
+				{
+					print_out += " M = " + dec_res.message + "\n";
+					if( dec_res.signer )
+					{
+						print_out += "\tSigned by " + dec_res.signer + "\n";
+					}
+					else
+					{
+						print_out += "\tNot Signed\n";
+					}
+					if( dec_res.message != test.message )
+					{
+						print_out += "FAIL M is not what was expected!\n Wanted:\n" + test.message + "\n";
+					}
+					else
+					{
+						print_out += " M Matched!\n";
+					}
+					if( dec_res.signer != test.signer )
+					{
+						print_out += "FAIL! Wanted Sig from:" + test.signer + "\n";
+					}
+					else
+					{
+						print_out += " Sig Matched!\n";
+					}
+				}
+			}
+
+			document.getElementById("utest_output").value = print_out;
+		}
+	}
+};
+</script>
+<script type="text/javascript">
 BSM.wallets.white_paper_area =
 {
 	open: function () {
@@ -6220,6 +6523,27 @@ BSM.wallets.white_paper_area =
 	close: function () {
 		document.getElementById("whitepaperarea").style.display = "none";
 	}
+};
+function line_breaks( mssg, chars )
+{
+	var newl = 0;var wrapat= chars;
+	var ret = "";
+	while( newl < mssg.length )
+	{
+		if( (newl + wrapat) < mssg.length )
+		{
+			ret += mssg.substring( newl, newl+wrapat );
+			ret += "\n";
+			newl += wrapat;
+		}
+		else
+		{
+			ret += mssg.substring( newl );
+			ret += "\n";
+			break;
+		}
+	}
+	return ret;
 };
 BSM.wallets.send_sec_mssg =
 {
@@ -6231,10 +6555,34 @@ BSM.wallets.send_sec_mssg =
 		document.getElementById("sendmssgarea").style.display = "none";
 	},
 
-	encrypt : function ()
+	encrypt : function ( )
 	{
 		var message = document.getElementById("secm_sendmssg").value;
 		var public_to = document.getElementById("sec_send_any_pubkey").value;
+		var wif_to_sign = document.getElementById('sec_tx_WIF').value;
+
+		var res = this.internal_encrypt( message, public_to, wif_to_sign );
+		if( res.ok )
+		{
+			document.getElementById("secm_encrmessage").value = line_breaks( res.eM, 80 );
+			if( res.issigned )
+			{
+				document.getElementById('w2suo').innerHTML='Encrypted and Signed Message:';
+			}
+			else
+			{
+				document.getElementById('w2suo').innerHTML='Encrypted but not signed Message:';
+			}
+		}
+		else
+		{
+			document.getElementById("secm_encrmessage").value = "";
+			document.getElementById('w2suo').innerHTML='';
+			alert( res.err );
+		}
+	},
+	internal_encrypt : function ( message, public_to, wif_to_sign, nonce_bytes )
+	{
 		var public_to_dec;
 		//decode base58 check if it is it, else hope for hex:
 		try{ public_to_dec =  Bitcoin.Base58.decode_check(public_to); }catch(err){}
@@ -6249,12 +6597,12 @@ BSM.wallets.send_sec_mssg =
 		}
 		catch( err )
 		{
-			alert("failed to parse pubkey destination " + public_to + " not a valid destiation" );
-			return;
+			return { 
+				"ok":false, 
+				"err": "failed to parse pubkey destination " + public_to + " not a valid destiation"  };
 		}
 		var message_bytes = Crypto.charenc.UTF8.stringToBytes(message);
 
-		var wif_to_sign = document.getElementById('sec_tx_WIF').value;
 		
 		var btcKey = undefined;
 		if( wif_to_sign.length > 0 )
@@ -6264,60 +6612,28 @@ BSM.wallets.send_sec_mssg =
 		var signed_messg_bytes;
 		try
 		{	
-			signed_messg_bytes = bin_structured_sign(message_bytes, btcKey);
+			signed_messg_bytes = bin_structured_sign(message_bytes, btcKey, nonce_bytes);
 		}
 		catch(err)
 		{
-			alert("failed to encrypt and sign:" + err + err.toString );
-			return;
+			return { 
+				"ok":false, 
+				"err": "failed to encrypt and sign:" + err + err.toString };
 		}
 
 		var crypted = Bitcoin.ECIES.encrypt_message( pubpoint_k.getPubPoint() , 
-				signed_messg_bytes );
+				signed_messg_bytes, nonce_bytes );
 
 		if( crypted === undefined )
 		{
-			alert('Failed to encrypt message');
-			return;
+			return { "ok":false, "err": 'Failed to encrypt message' };
 		}
 
 		//convert to b64
-		var setto = Crypto.util.bytesToBase64( crypted );
-		var newl = 0;var wrapat=80;
-		var encrypted_message_b64 = "";
-		while( newl < setto.length )
-		{
-			if( (newl + wrapat) < setto.length )
-			{
-				encrypted_message_b64 += setto.substring( newl, newl+wrapat );
-				encrypted_message_b64 += "\n";
-				newl += wrapat;
-			}
-			else
-			{
-				encrypted_message_b64 += setto.substring( newl );
-				encrypted_message_b64 += "\n";
-				break;
-			}
-		}
+		var eM = Crypto.util.bytesToBase64( crypted );
 		//now: put finished signature into output box
-		if( encrypted_message_b64 )
-		{
-			document.getElementById("secm_encrmessage").value = encrypted_message_b64;
-			if( wif_to_sign.length > 0 )
-			{
-				document.getElementById('w2suo').innerHTML='Encrypted and Signed Message:';
-			}
-			else
-			{
-				document.getElementById('w2suo').innerHTML='Encrypted but not signed Message:';
-			}
-		}
-		else
-		{
-			document.getElementById("secm_encrmessage").value = "";
-			document.getElementById('w2suo').innerHTML='';
-		}
+		var issigned = wif_to_sign.length > 0 ? true : false;
+		return { "ok":true, "eM" : eM, 'signed' : issigned };
 	}
 };
 BSM.wallets.recv_sec_mssg =
@@ -6333,47 +6649,62 @@ BSM.wallets.recv_sec_mssg =
 	decrypt : function ()
 	{
 		var crypted_message = document.getElementById('recm_encrmessage').value;
-
+		var decrypt_wif = document.getElementById('sec_rx_WIF').value;
+		var res = this.internal_decrypt( crypted_message, decrypt_wif );
+		if( res.ok )
+		{
+			document.getElementById('sec_decry').value = res.message;
+			if( res.signer )
+			{
+				document.getElementById('secm_Decrypt_Message').innerHTML="Decrypted Message From <b>" 
+					+ res.signer + "</b>";
+				document.getElementById('sec_decry').style.background="white";
+			}
+			else
+			{
+				document.getElementById('secm_Decrypt_Message').innerHTML="Decrypted Message From Unknown - <b><span style='color:red;'>Message not Signed!</span></b>";
+				document.getElementById('sec_decry').style.background="orange";
+			}
+		}
+		else
+		{
+			document.getElementById('sec_decry').value = res.err;
+			document.getElementById('secm_Decrypt_Message').innerHTML="Failed to Decrypt";
+			document.getElementById('sec_decry').style.background="red";
+		}
+	},
+	internal_decrypt : function( crypted_message, decrypt_wif )
+	{
 		//decrypt since signature checked out:
 		var crypted_message_bytes = Crypto.util.base64ToBytes(crypted_message);
 		if( crypted_message_bytes === undefined )
 		{
-			alert("failed to base 64 decode base 64 message");
-			return;
+			return {"ok":false, "err" : "failed to base 64 decode base 64 message" };
+		}
+		if( ! decrypt_wif )
+		{
+			return {"ok":false , "err" : "failed to decode WIF for decryption"};
 		}
 
-		var decrypt_wif = document.getElementById('sec_rx_WIF').value;
 		var btcKey = new Bitcoin.ECKey(decrypt_wif);
 
 		var decrypted = Bitcoin.ECIES.decrypt_message( btcKey, crypted_message_bytes );
 
 		if( decrypted === undefined )
 		{
-			alert('Failed to decrypt message:' + Bitcoin.ECIES.m_last_error );
-			return false;
+			return {"ok":false, "err" : 'Failed to decrypt message:' + Bitcoin.ECIES.m_last_error};
 		}
 
 		//check signature
 		var checksigres = bin_structured_verify( decrypted );
 		if(! checksigres[0] )
 		{
-			alert("Signature does not check out: " + checksigres[1]);
-			return false;
+			return {"ok":false, "err" : "Signature does not check out: " + checksigres[1] };
 		}
 		var payload_message = Crypto.charenc.UTF8.bytesToString(checksigres[1]);
 
 		document.getElementById('sec_decry').value = payload_message;
-		if( checksigres[2] )
-		{
-			document.getElementById('secm_Decrypt_Message').innerHTML="Decrypted Message From <b>" 
-				+ checksigres[2] + "</b>";
-			document.getElementById('sec_decry').style.background="white";
-		}
-		else
-		{
-			document.getElementById('secm_Decrypt_Message').innerHTML="Decrypted Message From Unknown - <b><span style='color:red;'>Message not Signed!</span></b>";
-			document.getElementById('sec_decry').style.background="red";
-		}
+		return {"ok":true, "message": payload_message, "signer" : checksigres[2] };
 	}
 
 };
