@@ -1,4 +1,5 @@
-
+implement unit tests for BSM
+Add whitepaper tab to BSM
 
 
 local storage of wallet json

@@ -6123,6 +6123,7 @@ function bin_structured_verify( decrypted_message_bytes )
 		<div class="menu" id="menu">
 			<div class="tab selected" id="send_sec_mssg" onclick="BSM.tabSwitch(this);">Send Message</div>
 			<div class="tab" id="recv_sec_mssg" onclick="BSM.tabSwitch(this);">Receive Message</div>
+			<div class="tab" id="white_paper_area" onclick="BSM.tabSwitch(this);">Whitepaper</div>
 		</div>
 
 		<div id="generate">
@@ -6144,14 +6145,14 @@ function bin_structured_verify( decrypted_message_bytes )
 				</div>
 				<div class="row extra">
 					<span class="label">WIF to Sign message:</span>
-					<input style="width: 40em;" type="password" id="sec_tx_WIF" >
+					<input style="width: 40em;" type="password" id="sec_tx_WIF" onchange="W2SU();" >
 				</div>
 				<div class="row extra">
-					<span><input type="button" value="Encrypt and Sign Message" 
+					<span><input type="button" value="Encrypt Message" id="w2sub"
 							onclick="BSM.wallets.send_sec_mssg.encrypt();" /></span>
 				</div>
 				<div class="row extra">
-					<span class="label">Encrypted Message</span>
+					<span id='w2suo' class="label">Output:</span>
 				</div>
 				<div class="row extra">
 					<textarea rows="10" cols="80" id="secm_encrmessage"></textarea>
@@ -6171,6 +6172,9 @@ function bin_structured_verify( decrypted_message_bytes )
 				</div>
 				<div class="row extra"> <span class="label" id="secm_Decrypt_Message" >Decrypted Message</span> </div>
 				<div class="row extra"> <textarea rows="11" cols="80" id="sec_decry"></textarea> </div>
+			</div>
+			<div id="whitepaperarea" class="walletarea">
+				<p>Whitepaper here
 			</div>
 
 		</div>
@@ -6207,6 +6211,16 @@ window.UnlockScreen = function()
 };
 </script>
 <script type="text/javascript">
+BSM.wallets.white_paper_area =
+{
+	open: function () {
+		document.getElementById("whitepaperarea").style.display = "block";
+	},
+
+	close: function () {
+		document.getElementById("whitepaperarea").style.display = "none";
+	}
+};
 BSM.wallets.send_sec_mssg =
 {
 	open: function () {
@@ -6290,10 +6304,19 @@ BSM.wallets.send_sec_mssg =
 		if( encrypted_message_b64 )
 		{
 			document.getElementById("secm_encrmessage").value = encrypted_message_b64;
+			if( wif_to_sign.length > 0 )
+			{
+				document.getElementById('w2suo').innerHTML='Encrypted and Signed Message:';
+			}
+			else
+			{
+				document.getElementById('w2suo').innerHTML='Encrypted but not signed Message:';
+			}
 		}
 		else
 		{
 			document.getElementById("secm_encrmessage").value = "";
+			document.getElementById('w2suo').innerHTML='';
 		}
 	}
 };
@@ -6353,6 +6376,20 @@ BSM.wallets.recv_sec_mssg =
 		}
 	}
 
+};
+function W2SU()
+{
+	//sec_tx_WIF
+	//w2sub
+	var val = document.getElementById('sec_tx_WIF').value;
+	if( val.length > 0)
+	{
+		document.getElementById('w2sub').value='Encrypt and Sign Message';
+	}
+	else
+	{
+		document.getElementById('w2sub').value='Encrypt Message';
+	}
 };
 </script>
 	<script type="text/javascript">
