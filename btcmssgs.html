@@ -4,7 +4,7 @@
 	<meta charset="utf-8">
 	<title>Bitcoin Secure Messages</title>
 
-	<script type="text/javascript">
+<script type="text/javascript">
 // Array.prototype.map function is in the public domain.
 // Production steps of ECMA-262, Edition 5, 15.4.4.19  
 // Reference: http://es5.github.com/#x15.4.4.19  
@@ -6121,7 +6121,8 @@ function bin_structured_verify( decrypted_message_bytes )
 	<div id="main">
 		<div id="tagline"><h2>Bitcoin Secure Messages</h2></div>
 		<div class="menu" id="menu">
-			<div class="tab selected" id="secure_messages" onclick="ninja.tabSwitch(this);">Secure Messages</div>
+			<div class="tab selected" id="send_sec_mssg" onclick="BSM.tabSwitch(this);">Send Message</div>
+			<div class="tab" id="recv_sec_mssg" onclick="BSM.tabSwitch(this);">Receive Message</div>
 		</div>
 
 		<div id="generate">
@@ -6130,7 +6131,7 @@ function bin_structured_verify( decrypted_message_bytes )
 		</div>
 
 		<div id="wallets">
-			<div id="securemessagesarea" class="walletarea">
+			<div id="sendmssgarea" class="walletarea">
 				<div class="row extra">
 					<span class="label" >Message to Send:</span>
 				</div>
@@ -6147,29 +6148,29 @@ function bin_structured_verify( decrypted_message_bytes )
 				</div>
 				<div class="row extra">
 					<span><input type="button" value="Encrypt and Sign Message" 
-							onclick="ninja.wallets.secure_messages.encrypt();" /></span>
+							onclick="BSM.wallets.send_sec_mssg.encrypt();" /></span>
 				</div>
 				<div class="row extra">
 					<span class="label">Encrypted Message</span>
 				</div>
 				<div class="row extra">
-					<textarea rows="4" cols="80" id="secm_encrmessage"></textarea>
+					<textarea rows="10" cols="80" id="secm_encrmessage"></textarea>
 				</div>
+			</div>
+			<div id="recvmssgarea" class="walletarea">
 				<p>Receive Secure Message:
+				<div class="row extra"> <span class="label">Encrypted Message</span> </div>
+				<div class="row extra"> <textarea rows="10" cols="80" id="recm_encrmessage"></textarea> </div>
 				<div class="row extra">
 					<span class="label">WIF to Decode message:</span>
 					<input style="width: 40em;" tabindex="2" type="password" id="sec_rx_WIF" >
 				</div>
 				<div class="row extra">
 					<span><input type="button" value="Decrypt and Verify Message" 
-							onclick="ninja.wallets.secure_messages.decrypt();" /></span>
+							onclick="BSM.wallets.recv_sec_mssg.decrypt();" /></span>
 				</div>
-				<div class="row extra">
-					<span class="label" id="secm_Decrypt_Message" >Decrypted Message</span>
-				</div>
-				<div class="row extra">
-					<textarea rows="11" cols="80" id="sec_decry"></textarea>
-				</div>
+				<div class="row extra"> <span class="label" id="secm_Decrypt_Message" >Decrypted Message</span> </div>
+				<div class="row extra"> <textarea rows="11" cols="80" id="sec_decry"></textarea> </div>
 			</div>
 
 		</div>
@@ -6179,17 +6180,17 @@ function bin_structured_verify( decrypted_message_bytes )
 	</div>
 
 	<script type="text/javascript">
-var ninja = { wallets: {} };
+var BSM = { wallets: {} };
 
-ninja.tabSwitch = function (walletTab) {
+BSM.tabSwitch = function (walletTab) {
 	if (walletTab.className.indexOf("selected") == -1) {
 		// unselect all tabs
-		for (var wType in ninja.wallets) {
+		for (var wType in BSM.wallets) {
 			document.getElementById(wType).className = "tab";
-			ninja.wallets[wType].close();
+			BSM.wallets[wType].close();
 		}
 		walletTab.className += " selected";
-		ninja.wallets[walletTab.getAttribute("id")].open();
+		BSM.wallets[walletTab.getAttribute("id")].open();
 	}
 };
 
@@ -6206,22 +6207,37 @@ window.UnlockScreen = function()
 };
 </script>
 <script type="text/javascript">
-ninja.wallets.secure_messages =
+BSM.wallets.send_sec_mssg =
 {
 	open: function () {
-		document.getElementById("securemessagesarea").style.display = "block";
+		document.getElementById("sendmssgarea").style.display = "block";
 	},
 
 	close: function () {
-		document.getElementById("securemessagesarea").style.display = "none";
+		document.getElementById("sendmssgarea").style.display = "none";
 	},
 
 	encrypt : function ()
 	{
 		var message = document.getElementById("secm_sendmssg").value;
 		var public_to = document.getElementById("sec_send_any_pubkey").value;
+		var public_to_dec;
 		//decode base58 check if it is it, else hope for hex:
-		try{ public_to = Bitcoin.Base58.decode_check(public_to) }catch(err){}
+		try{ public_to_dec =  Bitcoin.Base58.decode_check(public_to); }catch(err){}
+		if( ! public_to_dec ) 
+		{
+			try { public_to_dec = Crypto.util.hexToBytes(public_to); }catch(err){}
+		}
+		var pubpoint_k = new Bitcoin.ECKey(false);
+		try
+		{
+			pubpoint_k.setPub( public_to_dec );
+		}
+		catch( err )
+		{
+			alert("failed to parse pubkey destination " + public_to + " not a valid destiation" );
+			return;
+		}
 		var message_bytes = Crypto.charenc.UTF8.stringToBytes(message);
 
 		var wif_to_sign = document.getElementById('sec_tx_WIF').value;
@@ -6242,8 +6258,6 @@ ninja.wallets.secure_messages =
 			return;
 		}
 
-		var pubpoint_k = new Bitcoin.ECKey(false);
-		pubpoint_k.setPub( public_to );
 		var crypted = Bitcoin.ECIES.encrypt_message( pubpoint_k.getPubPoint() , 
 				signed_messg_bytes );
 
@@ -6281,11 +6295,21 @@ ninja.wallets.secure_messages =
 		{
 			document.getElementById("secm_encrmessage").value = "";
 		}
+	}
+};
+BSM.wallets.recv_sec_mssg =
+{
+	open: function () {
+		document.getElementById("recvmssgarea").style.display = "block";
+	},
+
+	close: function () {
+		document.getElementById("recvmssgarea").style.display = "none";
 	},
 	
 	decrypt : function ()
 	{
-		var crypted_message = document.getElementById('secm_encrmessage').value;
+		var crypted_message = document.getElementById('recm_encrmessage').value;
 
 		//decrypt since signature checked out:
 		var crypted_message_bytes = Crypto.util.base64ToBytes(crypted_message);
@@ -6320,10 +6344,12 @@ ninja.wallets.secure_messages =
 		{
 			document.getElementById('secm_Decrypt_Message').innerHTML="Decrypted Message From <b>" 
 				+ checksigres[2] + "</b>";
+			document.getElementById('sec_decry').style.background="white";
 		}
 		else
 		{
-			document.getElementById('secm_Decrypt_Message').innerHTML="Decrypted Message From Unknown - Message not Signed!";
+			document.getElementById('secm_Decrypt_Message').innerHTML="Decrypted Message From Unknown - <b><span style='color:red;'>Message not Signed!</span></b>";
+			document.getElementById('sec_decry').style.background="red";
 		}
 	}
 
@@ -6340,7 +6366,7 @@ else
 	//good news
 	document.getElementById("generate").style.display = "none";
 	document.getElementById("menu").style.visibility = "visible";
-	ninja.wallets.secure_messages.open();
+	BSM.wallets.send_sec_mssg.open();
 }
 </script>
 </body>
