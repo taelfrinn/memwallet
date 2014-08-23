@@ -5449,7 +5449,7 @@ Bitcoin.ECKey = (function () {
 
 	ECKey.prototype.isValid = function()
 	{
-		if( this.priv === undefined ) 
+		if( this.priv == undefined ) 
 		{
 			return false;	
 		}
@@ -6438,15 +6438,16 @@ BSM.wallets.unit_test_area =
 			"signer" : null
 		}
 	],
-	run : function ()
+	Sched_one_test : function ( testno )
 	{
-		var print_out = "Begin\n";
-		document.getElementById("utest_output").value = print_out;
-		var vec = BSM.wallets.unit_test_area.vectors;
-		for( var at=0; at< vec.length; ++at)
+		setTimeout( function(){ BSM.wallets.unit_test_area.Run_one_test(testno) }, 500 );
+	},
+	Run_one_test : function ( testno )
+	{
+		if( testno < BSM.wallets.unit_test_area.vectors.length )
 		{
-			var test = vec[at];
-			print_out += "Unit Test #" + at + "\n";
+			var test = BSM.wallets.unit_test_area.vectors[testno];
+			var print_out = "---------------------------------\nUnit Test #" + testno + "\n";
 			for( var kn in test )
 			{
 				print_out += "\t" + kn + " = " + test[kn] + "\n";
@@ -6458,6 +6459,7 @@ BSM.wallets.unit_test_area =
 			if( ! enc_res.ok )
 			{
 				print_out += "FAIL to encrypt: " + enc_res.err;
+				BSM.wallets.unit_test_area.pass_all = false;
 			}
 			else
 			{
@@ -6465,6 +6467,7 @@ BSM.wallets.unit_test_area =
 				if(  enc_res.eM  != test.eM )
 				{
 					print_out += "FAIL eM is not what was expected!\n Wanted:\n" + test.eM + "\n";
+					BSM.wallets.unit_test_area.pass_all = false;
 				}
 				else
 				{
@@ -6477,6 +6480,7 @@ BSM.wallets.unit_test_area =
 				if( ! dec_res.ok )
 				{
 					print_out += "FAIL to decrypt: " + dec_res.err;
+					BSM.wallets.unit_test_area.pass_all = false;
 				}
 				else
 				{
@@ -6492,6 +6496,7 @@ BSM.wallets.unit_test_area =
 					if( dec_res.message != test.message )
 					{
 						print_out += "FAIL M is not what was expected!\n Wanted:\n" + test.message + "\n";
+						BSM.wallets.unit_test_area.pass_all = false;
 					}
 					else
 					{
@@ -6500,6 +6505,7 @@ BSM.wallets.unit_test_area =
 					if( dec_res.signer != test.signer )
 					{
 						print_out += "FAIL! Wanted Sig from:" + test.signer + "\n";
+						BSM.wallets.unit_test_area.pass_all = false;
 					}
 					else
 					{
@@ -6508,8 +6514,29 @@ BSM.wallets.unit_test_area =
 				}
 			}
 
-			document.getElementById("utest_output").value = print_out;
+			document.getElementById("utest_output").value += print_out;
+
+			BSM.wallets.unit_test_area.Sched_one_test(testno+1);
 		}
+		else
+		{
+			document.getElementById("utest_output").value += "\nCOMPLETE ALL UNIT TESTS\n";
+			if( BSM.wallets.unit_test_area.pass_all )
+			{
+				document.getElementById("utest_output").value += "All Passed";
+			}else
+			{
+				document.getElementById("utest_output").value += "FAILURE";
+			}
+		}
+	},
+	run : function ()
+	{
+		var print_out = "Begin Unit Tests\n";
+		document.getElementById("utest_output").value = print_out;
+		BSM.wallets.unit_test_area.pass_all = true;
+
+		BSM.wallets.unit_test_area.Sched_one_test(0);
 	}
 };
 </script>
@@ -6687,6 +6714,10 @@ BSM.wallets.recv_sec_mssg =
 		}
 
 		var btcKey = new Bitcoin.ECKey(decrypt_wif);
+		if( ! btcKey.isValid() )
+		{
+			return {"ok":false, "err" : 'Not a valid decrypting key'};
+		}
 
 		var decrypted = Bitcoin.ECIES.decrypt_message( btcKey, crypted_message_bytes );
 
