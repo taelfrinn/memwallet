@@ -6729,7 +6729,9 @@ function W2SU()
 if( ! window.crypto || ! window.crypto.getRandomValues )
 {
 	//bad news
-	document.getElementById("crypto_ran_exists_result").innerHTML="Bad news, your browser not supported!";
+	document.getElementById("crypto_ran_exists_result").innerHTML=
+		"<p>Bad news, your browser does not support crypto!" + 
+		"<p>Please upgrade to Firefox 21+, Chrome 11+, IE 11+ ";
 }
 else
 {
