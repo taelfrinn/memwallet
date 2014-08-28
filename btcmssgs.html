@@ -6388,13 +6388,15 @@ Plain unformatted text message payloads are recommended to use utf-8.
 know as a bitcoin "Variable length integer"
 <li>CompactSizePrefix(X) = CompactSize(X) || X
 <li>QTHASH(x) = SHA256((SHA256( CompactSizePrefix("Bitcoin Signed Message:\n") || CompactSizePrefix(x) )
-This standard assumes the reader is familiar with the bitcoin compact signature format,
+</ul>
+<p>This standard assumes the reader is familiar with the bitcoin compact signature format,
 which is a 65 byte signature which allows the verifier to recover the public key associated
 with the signature, eliminating the need to send it with the message.
 Once consequence of this format is that signatures of tampered messages will nearly always
 result in some public key, but it will not be the same as the orignial signing key.
 The address of the sender will be provided to enable validation of the signature. The format
 is a 1 byte recid, followed by ECDSA R then S values.
+<ul>
 <li>CompactSign( PrivateKey, 32 byte QT Hash ) == 65 byte message
 <li>CompactVerify( 65 byte message, 32 bytes Hash ) public key counterpart of (PrivateKey)
 <li>ECIES with HMAC_SHA256 for mac, PBKDF2 for KDF
@@ -6404,7 +6406,9 @@ envelope, simply a pure byte cipher
 <li>compact_signed_message = 0x01 || CompactSizePrefix(M) || Sender_Address || Signature
 <li>compact_unsigned_message = 0x00 || CompactSizePrefix(M)
 <li>Secure message format: ECIES( compact_signed_message or compact_unsigned_message )
-Summary of the functions defined:
+</ul>
+<p>Summary of the functions defined:
+<ul>
 <li>eM = SendMessage( M, Signing_Key, Dest_Pub )
 <li>M,Sender_Address = ReceiveMessage( eM, Decrypting_Key )
 It is acceptable for deterministic nonces to be used for signatures, however nonces generated for
